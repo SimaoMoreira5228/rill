@@ -37,13 +37,46 @@ module Rill
       validate_options!
     end
 
-    def get(url : String | URI) : Response
+    def get(url : String | URI, headers : HTTP::Headers? = nil) : Response
+      follow_redirects(url, headers) do |current_url, request_headers|
+        attempt_buffered(current_url, request_headers)
+      end
+    end
+
+    def stream_to(
+      url : String | URI,
+      destination : IO,
+      headers : HTTP::Headers? = nil,
+      max_bytes : Int64? = nil,
+      &before_body : HTTP::Status, HTTP::Headers, URI ->
+    ) : Response
+      follow_redirects(url, headers) do |current_url, request_headers|
+        attempt_stream(current_url, request_headers, destination, max_bytes) do |status, response_headers, response_url|
+          before_body.call(status, response_headers, response_url)
+        end
+      end
+    end
+
+    def stream_to(
+      url : String | URI,
+      destination : IO,
+      headers : HTTP::Headers? = nil,
+      max_bytes : Int64? = nil,
+    ) : Response
+      stream_to(url, destination, headers, max_bytes) { |_, _, _| }
+    end
+
+    private def follow_redirects(
+      url : String | URI,
+      extra_headers : HTTP::Headers?,
+      &request : URI, HTTP::Headers -> Response
+    ) : Response
       current_url = parse_url(url)
-      headers = initial_headers
+      headers = initial_headers(extra_headers)
       redirects = 0
 
       loop do
-        response = fetch_once(current_url, headers)
+        response = request.call(current_url, headers)
 
         if location = redirect_location(response)
           if redirects >= @options.max_redirects
@@ -66,14 +99,14 @@ module Rill
       end
     end
 
-    private def fetch_once(url : URI, headers : HTTP::Headers) : Response
+    private def attempt_buffered(url : URI, headers : HTTP::Headers) : Response
       attempt = 0
 
       loop do
         attempt += 1
 
         begin
-          response = perform(url, headers)
+          response = perform_buffered(url, headers)
         rescue ex : NetworkError
           raise ex if attempt > @options.retries
           sleep(retry_wait(attempt))
@@ -86,33 +119,63 @@ module Rill
       end
     end
 
-    private def perform(url : URI, headers : HTTP::Headers) : Response
-      client = build_client(url)
-      request = HTTP::Request.new("GET", url.request_target, headers)
+    private def perform_buffered(url : URI, headers : HTTP::Headers) : Response
       body = IO::Memory.new
       status = HTTP::Status::OK
       response_headers = HTTP::Headers.new
 
-      begin
-        client.exec(request) do |response|
+      with_client(url) do |client|
+        client.exec(build_request(url, headers)) do |response|
           status = response.status
           response_headers = response.headers
-          read_body(response, url, body)
+
+          if status.success?
+            read_body(response, url, body, @options.max_response_bytes)
+          else
+            body << read_error_body(response)
+          end
         end
-      rescue ex : IO::Error | Socket::Error
-        raise NetworkError.new(url, ex)
-      ensure
-        client.close
       end
 
       Response.new(status, body.to_s, response_headers, url)
     end
 
-    private def read_body(response : HTTP::Client::Response, url : URI, destination : IO::Memory) : Nil
-      if length = response.headers["Content-Length"]?.try(&.to_i64?)
-        if length > @options.max_response_bytes
-          raise ResponseTooLargeError.new(url, @options.max_response_bytes)
+    private def attempt_stream(
+      url : URI,
+      headers : HTTP::Headers,
+      destination : IO,
+      max_bytes : Int64?,
+      &before_body : HTTP::Status, HTTP::Headers, URI ->
+    ) : Response
+      status = HTTP::Status::OK
+      response_headers = HTTP::Headers.new
+
+      with_client(url) do |client|
+        client.exec(build_request(url, headers)) do |response|
+          status = response.status
+          response_headers = response.headers
+
+          unless status.success?
+            return Response.new(status, read_error_body(response), response_headers, url)
+          end
+
+          before_body.call(status, response_headers, url)
+          read_body(response, url, destination, max_bytes)
         end
+      end
+
+      Response.new(status, "", response_headers, url)
+    end
+
+    private def read_body(
+      response : HTTP::Client::Response,
+      url : URI,
+      destination : IO,
+      max_bytes : Int64?,
+    ) : Nil
+      content_length = response.headers["Content-Length"]?.try(&.to_i64?)
+      if max_bytes && content_length && content_length > max_bytes
+        raise ResponseTooLargeError.new(url, max_bytes)
       end
 
       io = response.body_io?
@@ -126,12 +189,47 @@ module Rill
         break if read.zero?
 
         total += read
-        if total > @options.max_response_bytes
-          raise ResponseTooLargeError.new(url, @options.max_response_bytes)
+        if max_bytes && total > max_bytes
+          raise ResponseTooLargeError.new(url, max_bytes)
         end
 
         destination.write(buffer[0, read])
       end
+    end
+
+    private def read_error_body(response : HTTP::Client::Response) : String
+      io = response.body_io?
+      return "" unless io
+
+      body = IO::Memory.new
+      buffer = Bytes.new(4 * 1024)
+      remaining = 64 * 1024
+
+      while remaining > 0
+        read = io.read(buffer[0, Math.min(buffer.size, remaining)])
+        break if read.zero?
+
+        body.write(buffer[0, read])
+        remaining -= read
+      end
+
+      body.to_s
+    end
+
+    private def with_client(url : URI, &)
+      client = build_client(url)
+
+      begin
+        yield client
+      rescue ex : IO::Error | Socket::Error
+        raise NetworkError.new(url, ex)
+      ensure
+        client.close
+      end
+    end
+
+    private def build_request(url : URI, headers : HTTP::Headers) : HTTP::Request
+      HTTP::Request.new("GET", url.request_target, headers)
     end
 
     private def build_client(url : URI) : HTTP::Client
@@ -145,12 +243,12 @@ module Rill
       client
     end
 
-    private def initial_headers : HTTP::Headers
+    private def initial_headers(extra : HTTP::Headers?) : HTTP::Headers
       headers = HTTP::Headers.new
-      @options.headers.each do |name, values|
-        values.each do |value|
-          headers.add(name, value)
-        end
+      copy_headers(@options.headers, headers)
+
+      if extra
+        copy_headers(extra, headers)
       end
 
       headers["User-Agent"] ||= @options.user_agent
@@ -161,6 +259,14 @@ module Rill
       end
 
       headers
+    end
+
+    private def copy_headers(source : HTTP::Headers, destination : HTTP::Headers) : Nil
+      source.each do |name, values|
+        values.each do |value|
+          destination.add(name, value)
+        end
+      end
     end
 
     private def cookie_header : String

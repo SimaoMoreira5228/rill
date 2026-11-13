@@ -10,6 +10,11 @@ require "./rill/extractor"
 require "./rill/extractors/direct_media"
 require "./rill/extractors/internet_archive"
 require "./rill/extractor_registry"
+require "./rill/format_selector"
+require "./rill/cancellation"
+require "./rill/download_progress"
+require "./rill/output_file_name"
+require "./rill/downloader"
 
 module Rill
   def self.extract(url : String | URI, options : RequestOptions = RequestOptions.new) : Media

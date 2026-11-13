@@ -81,4 +81,53 @@ module Rill
       super("invalid request options: #{reason}")
     end
   end
+
+  class CancelledError < Error
+    def initialize
+      super("operation cancelled")
+    end
+  end
+
+  class DownloadError < Error
+  end
+
+  class DownloadWriteError < DownloadError
+    getter path : String
+
+    def initialize(@path : String, cause : Exception)
+      super("failed to write #{@path}: #{cause.message}", cause)
+    end
+  end
+
+  class FileExistsError < DownloadError
+    getter path : String
+
+    def initialize(@path : String)
+      super("file already exists: #{@path}")
+    end
+  end
+
+  class IncompleteDownloadError < DownloadError
+    getter path : String
+    getter expected_bytes : Int64
+    getter actual_bytes : Int64
+
+    def initialize(@path : String, @expected_bytes : Int64, @actual_bytes : Int64)
+      super("incomplete download for #{@path}: expected #{@expected_bytes} bytes, got #{@actual_bytes}")
+    end
+  end
+
+  class ResumeError < DownloadError
+    getter path : String
+
+    def initialize(@path : String, reason : String)
+      super("cannot resume #{@path}: #{reason}")
+    end
+  end
+
+  class InvalidOutputPathError < DownloadError
+    def initialize(path : String, directory : String)
+      super("refusing to write #{path} outside #{directory}")
+    end
+  end
 end
