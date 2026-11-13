@@ -43,8 +43,7 @@ describe Rill::Extractors::YouTube do
       media.duration_seconds.not_nil!.should be_close(213.0, 0.01)
       media.formats.size.should eq(27)
 
-      request = server.requests.first
-      request.method.should eq("POST")
+      request = server.requests.find { |item| item.method == "POST" }.not_nil!
       request.headers["X-YouTube-Client-Name"].should eq("101")
       captured_body.not_nil!.should contain("\"videoId\":\"dQw4w9WgXcQ\"")
 
@@ -59,6 +58,93 @@ describe Rill::Extractors::YouTube do
       audio.kind.should eq(Rill::FormatKind::Audio)
       audio.container.should eq("mp4")
       audio.audio_codec.not_nil!.should start_with("mp4a")
+    ensure
+      server.close
+    end
+  end
+
+  it "uses watch page visitor data and the page API key" do
+    captured_request : HTTP::Request? = nil
+    server = TestHTTPServer.new
+    server.on("/watch") do |_, response|
+      response.headers.add("Set-Cookie", "VISITOR_INFO1_LIVE=visitor123; Path=/")
+      response.print(
+        %(<script>var ytcfg={"INNERTUBE_API_KEY":"test-key","VISITOR_DATA":"visitor123"};</script>),
+      )
+    end
+    server.on("/youtubei/v1/player") do |request, response|
+      captured_request = request
+      response.print(youtube_body("player.json"))
+    end
+    server.start
+
+    begin
+      extractor = Rill::Extractors::YouTube.new(server.url)
+      extractor.extract(
+        URI.parse("https://www.youtube.com/watch?v=dQw4w9WgXcQ"),
+        Rill::HTTPClient.new,
+      )
+
+      request = captured_request.not_nil!
+      request.resource.should contain("key=test-key")
+      request.headers["X-Goog-Visitor-Id"].should eq("visitor123")
+      request.headers["Cookie"]?.not_nil!.should contain("VISITOR_INFO1_LIVE=visitor123")
+    ensure
+      server.close
+    end
+  end
+
+  it "falls back to tv_samsung when visionos is unplayable" do
+    fallback = %({
+      "playabilityStatus": {"status": "OK"},
+      "videoDetails": {
+        "videoId": "dQw4w9WgXcQ",
+        "title": "Fallback",
+        "author": "Example",
+        "lengthSeconds": "10",
+        "isLiveContent": false
+      },
+      "streamingData": {
+        "adaptiveFormats": [
+          {
+            "itag": 18,
+            "url": "https://example.com/video.mp4",
+            "mimeType": "video/mp4",
+            "width": 640,
+            "height": 360,
+            "audioChannels": 2,
+            "bitrate": 500000,
+            "contentLength": "1000"
+          }
+        ]
+      }
+    })
+
+    clients = [] of String
+    server = TestHTTPServer.new
+    server.on("/watch") { |_, response| response.print(%({"VISITOR_DATA":"visitor123"})) }
+    server.on("/youtubei/v1/player") do |request, response|
+      client_name = request.headers["X-YouTube-Client-Name"]
+      clients << client_name
+
+      if client_name == "101"
+        response.print(youtube_body("login_required.json"))
+      else
+        response.print(fallback)
+      end
+    end
+    server.start
+
+    begin
+      extractor = Rill::Extractors::YouTube.new(server.url)
+      media = extractor.extract(
+        URI.parse("https://www.youtube.com/watch?v=dQw4w9WgXcQ"),
+        Rill::HTTPClient.new,
+      )
+
+      media.title.should eq("Fallback")
+      media.formats.size.should eq(1)
+      clients.should eq(["101", "7"])
     ensure
       server.close
     end

@@ -12,12 +12,11 @@ module Rill::Extractors
   class YouTube < Extractor
     DEFAULT_API_BASE = "https://www.youtube.com"
     API_KEY          = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
-    CLIENT_NAME      = "VISIONOS"
-    CLIENT_VERSION   = "1.02"
-    CLIENT_ID        = "101"
-    USER_AGENT       = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) " \
-                       "AppleWebKit/605.1.15 (KHTML, like Gecko) " \
-                       "Version/26.0 Safari/605.1.15"
+    # NOTE: full browser user agents make YouTube exceed Crystal's 16 KB header limit.
+    WATCH_PAGE_USER_AGENT = "Mozilla/5.0"
+    VISIONOS_USER_AGENT   = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) " \
+                            "AppleWebKit/605.1.15 (KHTML, like Gecko) " \
+                            "Version/26.0 Safari/605.1.15"
     VIDEO_ID = /\A[A-Za-z0-9_-]{11}\z/
 
     HOSTS = {
@@ -30,6 +29,62 @@ module Rill::Extractors
       "youtube-nocookie.com",
       "www.youtube-nocookie.com",
     }
+
+    struct PlayerClient
+      getter name : String
+      getter identifier : String
+      getter version : String
+      getter user_agent : String
+      getter context : Hash(String, String)
+
+      def initialize(
+        @name : String,
+        @identifier : String,
+        @version : String,
+        @user_agent : String,
+        @context : Hash(String, String),
+      )
+      end
+    end
+
+    struct Bootstrap
+      getter visitor_data : String?
+      getter api_key : String?
+
+      def initialize(@visitor_data : String? = nil, @api_key : String? = nil)
+      end
+    end
+
+    VISIONOS = PlayerClient.new(
+      "visionos",
+      "101",
+      "1.02",
+      VISIONOS_USER_AGENT,
+      {
+        "clientName"  => "VISIONOS",
+        "deviceMake"  => "Apple",
+        "deviceModel" => "RealityDevice17,1",
+        "osName"      => "visionOS",
+        "osVersion"   => "26.5.23O471",
+      },
+    )
+
+    TV_SAMSUNG = PlayerClient.new(
+      "tv_samsung",
+      "7",
+      "5.20260707",
+      "Mozilla/5.0 (SMART-TV; Linux; Tizen 2.4.0) AppleWebKit/538.1 " \
+      "(KHTML, like Gecko) Version/2.4.0 TV Safari/538.1",
+      {
+        "clientName"  => "TVHTML5",
+        "deviceMake"  => "Samsung",
+        "deviceModel" => "UKS9800",
+        "osName"      => "Tizen",
+        "osVersion"   => "2.4.0",
+      },
+    )
+
+    CLIENTS = {VISIONOS, TV_SAMSUNG}
 
     def initialize(@api_base : String = DEFAULT_API_BASE)
     end
@@ -50,26 +105,52 @@ module Rill::Extractors
         raise UnsupportedUrlError.new(url.to_s)
       end
 
-      payload = player_payload(client, video_id, url)
-      validate_playability!(payload, url)
+      bootstrap = watch_page(client, video_id)
+      errors = [] of String
 
-      details = payload["videoDetails"]?.try(&.as_h?)
-      unless details
-        raise MediaUnavailableError.new(url.to_s, "video details are missing")
+      CLIENTS.each do |player_client|
+        begin
+          payload = player_payload(client, player_client, video_id, bootstrap, url)
+
+          if reason = playability_error(payload)
+            errors << "#{player_client.name}: #{reason}"
+            next
+          end
+
+          details = payload["videoDetails"]?.try(&.as_h?)
+          unless details
+            errors << "#{player_client.name}: video details are missing"
+            next
+          end
+
+          if details["isLiveContent"]?.try(&.as_bool?)
+            raise MediaUnavailableError.new(url.to_s, "live videos are not supported")
+          end
+
+          formats = formats_from(payload["streamingData"]?)
+          if formats.empty?
+            errors << "#{player_client.name}: no direct formats; JavaScript challenge support is required"
+            next
+          end
+
+          return build_media(details, payload, formats, video_id, url)
+        rescue ex : MediaUnavailableError
+          errors << "#{player_client.name}: #{ex.message}"
+        rescue ex : HTTPError
+          errors << "#{player_client.name}: HTTP #{ex.status.code}"
+        end
       end
 
-      if details["isLiveContent"]?.try(&.as_bool?)
-        raise MediaUnavailableError.new(url.to_s, "live videos are not supported")
-      end
+      raise MediaUnavailableError.new(url.to_s, errors.uniq.join("; "))
+    end
 
-      formats = formats_from(payload["streamingData"]?)
-      if formats.empty?
-        raise MediaUnavailableError.new(
-          url.to_s,
-          "no direct formats are available; a JavaScript challenge solver is required",
-        )
-      end
-
+    private def build_media(
+      details : Hash(String, JSON::Any),
+      payload : Hash(String, JSON::Any),
+      formats : Array(Format),
+      video_id : String,
+      url : URI,
+    ) : Media
       Media.new(
         id: scalar_string(details["videoId"]?) || video_id,
         title: scalar_string(details["title"]?) || video_id,
@@ -84,19 +165,40 @@ module Rill::Extractors
       )
     end
 
-    private def player_payload(client : HTTPClient, video_id : String, url : URI) : Hash(String, JSON::Any)
+    private def watch_page(client : HTTPClient, video_id : String) : Bootstrap
+      headers = HTTP::Headers.new
+      headers["User-Agent"] = WATCH_PAGE_USER_AGENT
+      headers["Accept-Language"] = "en-US,en;q=0.9"
+
+      endpoint = "#{@api_base}/watch?v=#{video_id}&bpctr=9999999999&has_verified=1"
+      body = client.get(endpoint, headers).body
+
+      visitor = body.match(/"VISITOR_DATA":"([^"]+)"/) ||
+                body.match(/"visitorData":"([^"]+)"/)
+      api_key = body.match(/"INNERTUBE_API_KEY":"([^"]+)"/)
+
+      Bootstrap.new(visitor.try(&.[1]), api_key.try(&.[1]))
+    rescue Rill::Error
+      Bootstrap.new
+    end
+
+    private def player_payload(
+      client : HTTPClient,
+      player_client : PlayerClient,
+      video_id : String,
+      bootstrap : Bootstrap,
+      url : URI,
+    ) : Hash(String, JSON::Any)
       body = JSON.build do |json|
         json.object do
           json.field "context" do
             json.object do
               json.field "client" do
                 json.object do
-                  json.field "clientName", CLIENT_NAME
-                  json.field "clientVersion", CLIENT_VERSION
-                  json.field "deviceMake", "Apple"
-                  json.field "deviceModel", "RealityDevice17,1"
-                  json.field "osName", "visionOS"
-                  json.field "osVersion", "26.5.23O471"
+                  player_client.context.each do |key, value|
+                    json.field key, value
+                  end
+                  json.field "clientVersion", player_client.version
                   json.field "hl", "en"
                   json.field "timeZone", "UTC"
                   json.field "utcOffsetMinutes", 0
@@ -111,13 +213,17 @@ module Rill::Extractors
       end
 
       headers = HTTP::Headers.new
-      headers["User-Agent"] = USER_AGENT
-      headers["X-YouTube-Client-Name"] = CLIENT_ID
-      headers["X-YouTube-Client-Version"] = CLIENT_VERSION
+      headers["User-Agent"] = player_client.user_agent
+      headers["X-YouTube-Client-Name"] = player_client.identifier
+      headers["X-YouTube-Client-Version"] = player_client.version
       headers["Origin"] = @api_base
       headers["Referer"] = "#{@api_base}/"
+      if visitor = bootstrap.visitor_data
+        headers["X-Goog-Visitor-Id"] = visitor
+      end
 
-      endpoint = "#{@api_base}/youtubei/v1/player?key=#{API_KEY}&prettyPrint=false"
+      api_key = bootstrap.api_key || API_KEY
+      endpoint = "#{@api_base}/youtubei/v1/player?key=#{api_key}&prettyPrint=false"
       response = client.post(endpoint, body, headers)
 
       payload = JSON.parse(response.body).as_h?
@@ -137,14 +243,13 @@ module Rill::Extractors
       end
     end
 
-    private def validate_playability!(payload : Hash(String, JSON::Any), url : URI) : Nil
+    private def playability_error(payload : Hash(String, JSON::Any)) : String?
       status = payload["playabilityStatus"]?.try(&.as_h?)
       state = status.try(&.["status"]?).try(&.as_s?)
-      return if state == "OK"
+      return nil if state == "OK"
 
       reason = status.try(&.["reason"]?).try(&.as_s?)
-      reason ||= "video is not playable (#{state || "unknown"})"
-      raise MediaUnavailableError.new(url.to_s, reason)
+      reason || "video is not playable (#{state || "unknown"})"
     end
 
     private def formats_from(streaming_value : JSON::Any?) : Array(Format)
