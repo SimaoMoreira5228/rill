@@ -7,6 +7,7 @@ require "./extractors/hls"
 require "./extractors/internet_archive"
 require "./extractors/m3u"
 require "./extractors/media_ccc_de"
+require "./extractors/peer_tube"
 require "./http_client"
 require "./playlist"
 require "./request_options"
@@ -17,6 +18,7 @@ module Rill
       registry = new
       registry.register(Extractors::InternetArchive)
       registry.register(Extractors::MediaCccDe)
+      registry.register(Extractors::PeerTube)
       registry.register(Extractors::Hls)
       registry.register(Extractors::M3u)
       registry.register(Extractors::DirectMedia)
