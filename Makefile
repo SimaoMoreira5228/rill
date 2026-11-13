@@ -1,7 +1,8 @@
 CRYSTAL ?= crystal
 CC ?= cc
-MEDIA_CFLAGS ?= $(shell pkg-config --cflags libavformat libavcodec libavutil 2>/dev/null)
-MEDIA_LIBS ?= $(shell pkg-config --libs libavformat libavcodec libavutil 2>/dev/null)
+MESON ?= meson
+NATIVE_BUILD ?= build/native
+FFMPEG ?= subproject
 
 UNAME_S := $(shell uname -s)
 
@@ -15,7 +16,7 @@ LIBRARY := build/librill.so
 C_LINK_FLAGS := -Lbuild -l:librill.so -Wl,-rpath,$(CURDIR)/build
 endif
 
-.PHONY: all cli lib media-helper media-helper-static test test-media test-c-api clean
+.PHONY: all cli lib media-helper media-helper-system media-helper-static test test-media test-c-api clean
 
 all: cli lib
 
@@ -28,12 +29,22 @@ lib:
 	$(CRYSTAL) build --single-module --link-flags "$(SHARED_FLAGS)" -o $(LIBRARY) src/c_api.cr
 
 media-helper:
+	@if [ ! -f $(NATIVE_BUILD)/build.ninja ]; then \
+		$(MESON) setup $(NATIVE_BUILD) --buildtype=release -Dffmpeg=$(FFMPEG); \
+	fi
+	$(MESON) compile -C $(NATIVE_BUILD)
 	mkdir -p build
-	$(CC) -O2 -Wall -Wextra -Iinclude $(MEDIA_CFLAGS) csrc/rill_media.c -o build/rill-media $(MEDIA_LIBS)
+	cp $(NATIVE_BUILD)/rill-media build/rill-media
 
-media-helper-static:
+media-helper-system:
+	@if [ ! -f $(NATIVE_BUILD)-system/build.ninja ]; then \
+		$(MESON) setup $(NATIVE_BUILD)-system --buildtype=release -Dffmpeg=system; \
+	fi
+	$(MESON) compile -C $(NATIVE_BUILD)-system
 	mkdir -p build
-	$(CC) -O2 -Wall -Wextra -Iinclude $(MEDIA_CFLAGS) csrc/rill_media.c -o build/rill-media $(MEDIA_STATIC_LIBS)
+	cp $(NATIVE_BUILD)-system/rill-media build/rill-media-system
+
+media-helper-static: media-helper
 
 test:
 	$(CRYSTAL) spec

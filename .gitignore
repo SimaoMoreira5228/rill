@@ -1,7 +1,10 @@
 /bin/
 /build/
+/subprojects/ffmpeg/
+/subprojects/packagecache/
 /lib/
 /.crystal/
 /.shards/
 /local/
 /.opencode/
+subprojects/.wraplock

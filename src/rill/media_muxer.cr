@@ -279,6 +279,7 @@ module Rill
       end
 
       candidates << File.join("build", HELPER_NAME)
+      candidates << File.join("build", "native", HELPER_NAME)
 
       candidates.each do |candidate|
         if candidate.includes?('/') || candidate.includes?('\\')
