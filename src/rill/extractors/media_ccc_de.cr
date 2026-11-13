@@ -1,0 +1,218 @@
+require "json"
+require "uri"
+
+require "../errors"
+require "../extractor"
+require "../format"
+require "../media"
+
+module Rill::Extractors
+  class MediaCccDe < Extractor
+    DEFAULT_API_BASE = "https://media.ccc.de"
+    EVENT_PATH       = %r{\A/v/([^/]+)/?\z}
+
+    def initialize(@api_base : String = DEFAULT_API_BASE)
+    end
+
+    def name : String
+      "media_ccc_de"
+    end
+
+    def matches?(url : URI) : Bool
+      return false unless url.scheme == "http" || url.scheme == "https"
+      return false unless host?(url.host)
+
+      !EVENT_PATH.match(url.path).nil?
+    end
+
+    def extract(url : URI, client : HTTPClient) : Media
+      slug = slug_for(url)
+      unless slug
+        raise UnsupportedUrlError.new(url.to_s)
+      end
+
+      api_url = URI.parse("#{@api_base}/public/events/#{URI.encode_path_segment(slug)}")
+      response = begin
+        client.get(api_url)
+      rescue ex : HTTPError
+        if ex.status.code == 404
+          raise MediaUnavailableError.new(url.to_s, "event not found")
+        end
+        raise ex
+      end
+
+      payload = parse_payload(response.body, url)
+      formats = formats_from(payload["recordings"]?)
+      if formats.empty?
+        raise MediaUnavailableError.new(url.to_s, "event has no downloadable recordings")
+      end
+
+      Media.new(
+        id: scalar_string(payload["guid"]?),
+        title: scalar_string(payload["title"]?) || slug,
+        description: scalar_string(payload["description"]?),
+        webpage_url: url,
+        uploader: persons(payload["persons"]?),
+        duration_seconds: parse_seconds(payload["duration"]?),
+        thumbnail_url: thumbnail_url(payload),
+        upload_date: date_value(payload),
+        extractor: name,
+        formats: formats,
+      )
+    end
+
+    private def host?(host : String?) : Bool
+      case host.try(&.downcase)
+      when "media.ccc.de", "www.media.ccc.de"
+        true
+      else
+        false
+      end
+    end
+
+    private def slug_for(url : URI) : String?
+      match = EVENT_PATH.match(url.path)
+      return nil unless match
+
+      slug = URI.decode(match[1])
+      slug.empty? ? nil : slug
+    end
+
+    private def parse_payload(body : String, url : URI) : JSON::Any
+      JSON.parse(body)
+    rescue JSON::ParseException
+      raise MediaUnavailableError.new(url.to_s, "event metadata is not valid JSON")
+    end
+
+    private def formats_from(recordings_value : JSON::Any?) : Array(Format)
+      recordings = recordings_value.try(&.as_a?)
+      return [] of Format unless recordings
+
+      formats = [] of Format
+
+      recordings.each do |recording|
+        filename = scalar_string(recording["filename"]?)
+        next unless filename
+
+        recording_url = parse_uri(scalar_string(recording["recording_url"]?))
+        next unless recording_url
+
+        mime_type = scalar_string(recording["mime_type"]?) || ""
+        media_type, codecs = parse_mime_type(mime_type)
+        next if media_type.empty?
+
+        audio = media_type.starts_with?("audio/")
+        formats << Format.new(
+          format_id: filename,
+          url: recording_url,
+          kind: audio ? FormatKind::Audio : FormatKind::Combined,
+          container: container_for(media_type),
+          video_codec: audio ? nil : codecs,
+          audio_codec: audio ? audio_codec_for(media_type, codecs) : nil,
+          width: dimension(recording["width"]?),
+          height: dimension(recording["height"]?),
+          language: scalar_string(recording["language"]?),
+          note: mime_type,
+        )
+      end
+
+      formats
+    end
+
+    private def parse_mime_type(value : String) : Tuple(String, String?)
+      parts = value.split(';').map(&.strip)
+      media_type = parts.first?.try(&.downcase) || ""
+
+      codecs = parts.skip(1).compact_map do |part|
+        name, separator, codec = part.partition('=')
+        codec if separator == "=" && name.strip.downcase == "codecs"
+      end.first?
+
+      {media_type, codecs}
+    end
+
+    private def container_for(media_type : String) : String?
+      subtype = media_type.split('/').last?
+      return nil unless subtype
+
+      case subtype
+      when "mpeg"
+        "mp3"
+      else
+        subtype
+      end
+    end
+
+    private def audio_codec_for(media_type : String, codecs : String?) : String?
+      return codecs if codecs
+
+      subtype = media_type.split('/').last?
+      return nil unless subtype
+
+      case subtype
+      when "mpeg"
+        "mp3"
+      else
+        subtype
+      end
+    end
+
+    private def dimension(value : JSON::Any?) : Int32?
+      number = value.try(&.as_i?)
+      return nil unless number && number > 0
+
+      number
+    end
+
+    private def persons(value : JSON::Any?) : String?
+      array = value.try(&.as_a?)
+      return nil unless array
+
+      names = array.compact_map(&.as_s?)
+      names.empty? ? nil : names.join(", ")
+    end
+
+    private def thumbnail_url(payload : JSON::Any) : URI?
+      value = scalar_string(payload["thumb_url"]?) || scalar_string(payload["poster_url"]?)
+      value ? parse_uri(value) : nil
+    end
+
+    private def parse_uri(value : String?) : URI?
+      return nil unless value
+
+      uri = URI.parse(value)
+      return nil unless uri.scheme == "http" || uri.scheme == "https"
+      return nil if uri.host.nil?
+
+      uri
+    rescue URI::Error
+      nil
+    end
+
+    private def date_value(payload : JSON::Any) : String?
+      value = scalar_string(payload["date"]?)
+      return nil unless value
+      return nil if value.size < 10
+
+      value[0, 10]
+    end
+
+    private def parse_seconds(value : JSON::Any?) : Float64?
+      scalar_string(value).try(&.to_f?)
+    end
+
+    private def scalar_string(value : JSON::Any?) : String?
+      return nil unless value
+
+      if string = value.as_s?
+        string
+      elsif integer = value.as_i64?
+        integer.to_s
+      elsif float = value.as_f?
+        float.to_s
+      else
+        nil
+      end
+    end
+  end
+end

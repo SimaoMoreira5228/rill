@@ -63,6 +63,8 @@ describe Rill::ExtractorRegistry do
 
     registry.extractor_for("https://archive.org/details/BigBuckBunny_124")
       .should eq(Rill::Extractors::InternetArchive)
+    registry.extractor_for("https://media.ccc.de/v/39c3-opening")
+      .should eq(Rill::Extractors::MediaCccDe)
     registry.extractor_for("https://example.com/clip.mp4")
       .should eq(Rill::Extractors::DirectMedia)
     registry.extractor_for("https://example.com/playlist.m3u8")
