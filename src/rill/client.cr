@@ -3,11 +3,13 @@ require "uri"
 
 require "./cancellation"
 require "./downloader"
+require "./download_plan"
 require "./download_progress"
 require "./extractor_registry"
 require "./format"
 require "./http_client"
 require "./media"
+require "./media_muxer"
 require "./playlist"
 require "./request_options"
 
@@ -29,18 +31,20 @@ module Rill
     end
 
     def download(
-      source : Format | String | URI,
+      source : DownloadPlan | Format | String | URI,
       target : String | Path,
       cancellation : Cancellation? = nil,
       on_progress : Proc(DownloadProgress, Nil)? = nil,
       resume : Bool = true,
       overwrite : Bool = false,
+      media_backend : MediaMuxer::Backend = MediaMuxer.backend_from_environment,
     ) : Path
       downloader = Downloader.new(
         @options,
         @http,
         resume: resume,
         overwrite: overwrite,
+        media_muxer: MediaMuxer.new(media_backend),
       )
       downloader.download(source, target, cancellation, on_progress)
     end

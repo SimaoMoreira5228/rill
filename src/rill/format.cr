@@ -28,6 +28,7 @@ module Rill
     getter video_bitrate : Int32?
     getter audio_bitrate : Int32?
     getter filesize : Int64?
+    getter range_chunk_size : Int64?
     getter duration_seconds : Float64?
     getter language : String?
     getter note : String?
@@ -47,6 +48,7 @@ module Rill
       @video_bitrate : Int32? = nil,
       @audio_bitrate : Int32? = nil,
       @filesize : Int64? = nil,
+      @range_chunk_size : Int64? = nil,
       @duration_seconds : Float64? = nil,
       @language : String? = nil,
       @note : String? = nil,
@@ -69,6 +71,7 @@ module Rill
         json.field "video_bitrate", video_bitrate
         json.field "audio_bitrate", audio_bitrate
         json.field "filesize", filesize
+        json.field "range_chunk_size", range_chunk_size
         json.field "duration_seconds", duration_seconds
         json.field "language", language
         json.field "note", note

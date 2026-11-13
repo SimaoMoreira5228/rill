@@ -68,6 +68,52 @@ describe Rill::FormatSelector do
     Rill::FormatSelector.by_id(formats, "missing").should be_nil
   end
 
+  it "builds a plan for split video and audio" do
+    formats = [
+      selectable("video", Rill::FormatKind::Video, "mp4", height: 1080),
+      selectable("webm-audio", Rill::FormatKind::Audio, "webm", audio_bitrate: 160),
+      selectable("mp4-audio", Rill::FormatKind::Audio, "mp4", audio_bitrate: 128),
+    ]
+
+    plan = Rill::FormatSelector.plan(formats).not_nil!
+    plan.stream.format_id.should eq("video")
+    plan.audio.not_nil!.format_id.should eq("mp4-audio")
+    plan.requires_merge?.should be_true
+  end
+
+  it "uses a combined format without a separate audio track" do
+    formats = [
+      selectable("combined", Rill::FormatKind::Combined, "mp4", height: 720),
+      selectable("audio", Rill::FormatKind::Audio, "mp4", audio_bitrate: 128),
+    ]
+
+    plan = Rill::FormatSelector.plan(formats).not_nil!
+    plan.stream.format_id.should eq("combined")
+    plan.audio.should be_nil
+    plan.requires_merge?.should be_false
+  end
+
+  it "plans an audio-only result" do
+    formats = [
+      selectable("audio", Rill::FormatKind::Audio, "mp3", audio_bitrate: 320),
+    ]
+
+    plan = Rill::FormatSelector.plan(formats).not_nil!
+    plan.stream.format_id.should eq("audio")
+    plan.audio.should be_nil
+  end
+
+  it "pairs audio with an explicitly selected video" do
+    formats = [
+      selectable("video", Rill::FormatKind::Video, "webm", height: 720),
+      selectable("audio", Rill::FormatKind::Audio, "webm", audio_bitrate: 128),
+    ]
+
+    plan = Rill::FormatSelector.plan(formats, "video").not_nil!
+    plan.stream.format_id.should eq("video")
+    plan.audio.not_nil!.format_id.should eq("audio")
+  end
+
   it "returns nil for an empty list" do
     Rill::FormatSelector.best([] of Rill::Format).should be_nil
   end

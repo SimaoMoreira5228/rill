@@ -92,6 +92,12 @@ module Rill
       validate_positive!(format.width, "format #{format.format_id} width")
       validate_positive!(format.height, "format #{format.format_id} height")
       validate_non_negative!(format.filesize, "format #{format.format_id} filesize")
+
+      if chunk_size = format.range_chunk_size
+        if chunk_size <= 0
+          raise InvalidExtractionError.new(webpage_url.to_s, "format #{format.format_id} chunk size is invalid")
+        end
+      end
       validate_non_negative!(format.video_bitrate, "format #{format.format_id} video bitrate")
       validate_non_negative!(format.audio_bitrate, "format #{format.format_id} audio bitrate")
       validate_non_negative!(format.bitrate, "format #{format.format_id} bitrate")

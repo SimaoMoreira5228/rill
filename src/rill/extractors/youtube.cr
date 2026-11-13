@@ -318,6 +318,7 @@ module Rill::Extractors
         height: height,
         fps: positive_number(value["fps"]?),
         filesize: integer(value["contentLength"]?),
+        range_chunk_size: 1024_i64 * 1024,
         language: audio_language(value),
         note: scalar_string(value["qualityLabel"]?) || scalar_string(value["audioQuality"]?),
       )

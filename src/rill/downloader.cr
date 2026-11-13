@@ -4,12 +4,14 @@ require "path"
 require "uri"
 
 require "./cancellation"
+require "./download_plan"
 require "./download_progress"
 require "./errors"
 require "./format"
 require "./hls/parser"
 require "./hls/playlist"
 require "./http_client"
+require "./media_muxer"
 require "./request_options"
 
 module Rill
@@ -67,12 +69,14 @@ module Rill
 
     @options : RequestOptions
     @http : HTTPClient
+    @media_muxer : MediaMuxer
 
     def initialize(
       options : RequestOptions = RequestOptions.new,
       http : HTTPClient? = nil,
       @resume : Bool = true,
       @overwrite : Bool = false,
+      @media_muxer : MediaMuxer = MediaMuxer.new,
     )
       @options = options
       @http = http || HTTPClient.new(options)
@@ -84,6 +88,33 @@ module Rill
       cancellation : Cancellation? = nil,
       on_progress : Proc(DownloadProgress, Nil)? = nil,
     ) : Path
+      download_source(
+        source,
+        target,
+        cancellation,
+        on_progress,
+        check_target: true,
+        overwrite: @overwrite,
+      )
+    end
+
+    def download(
+      plan : DownloadPlan,
+      target : String | Path,
+      cancellation : Cancellation? = nil,
+      on_progress : Proc(DownloadProgress, Nil)? = nil,
+    ) : Path
+      download_plan(plan, target, cancellation, on_progress)
+    end
+
+    private def download_source(
+      source : Format | String | URI,
+      target : String | Path,
+      cancellation : Cancellation?,
+      on_progress : Proc(DownloadProgress, Nil)?,
+      check_target : Bool,
+      overwrite : Bool,
+    ) : Path
       url = case source
             when Format then source.url
             else             source
@@ -94,7 +125,7 @@ module Rill
       ensure_not_symlink(part_path)
       ensure_not_symlink(meta_path(part_path))
 
-      if File.exists?(target_path) && !@overwrite
+      if check_target && File.exists?(target_path) && !overwrite
         raise FileExistsError.new(target_path.to_s)
       end
 
@@ -103,13 +134,165 @@ module Rill
         transfer_hls(url, part_path, cancellation, on_progress)
       else
         remove_part(part_path) unless @resume
-        transfer(url, part_path, cancellation, on_progress)
+        chunk_size = format.try(&.range_chunk_size)
+        total = format.try(&.filesize)
+
+        if chunk_size && total && total > 0
+          transfer_chunked(url, part_path, total, chunk_size, cancellation, on_progress)
+        else
+          transfer(url, part_path, cancellation, on_progress)
+        end
       end
 
-      publish(part_path, target_path)
+      publish(part_path, target_path, overwrite)
       target_path
     rescue ex : File::Error
       raise DownloadWriteError.new(target_path.to_s, ex)
+    end
+
+    private def download_plan(
+      plan : DownloadPlan,
+      target : String | Path,
+      cancellation : Cancellation?,
+      on_progress : Proc(DownloadProgress, Nil)?,
+    ) : Path
+      audio = plan.audio
+      unless audio
+        return download_source(
+          plan.stream,
+          target,
+          cancellation,
+          on_progress,
+          check_target: true,
+          overwrite: @overwrite,
+        )
+      end
+
+      target_path = Path.new(target.to_s)
+      if File.exists?(target_path) && !@overwrite
+        raise FileExistsError.new(target_path.to_s)
+      end
+
+      video_path = Path.new("#{target_path}.video")
+      audio_path = Path.new("#{target_path}.audio")
+      completed = false
+
+      begin
+        download_part(plan.stream, video_path, cancellation, on_progress)
+        download_part(audio, audio_path, cancellation, on_progress)
+        @media_muxer.merge(video_path, audio_path, target_path, overwrite: @overwrite)
+        completed = true
+      ensure
+        if completed
+          File.delete(video_path) if File.exists?(video_path)
+          File.delete(audio_path) if File.exists?(audio_path)
+        end
+      end
+
+      target_path
+    end
+
+    private def download_part(
+      format : Format,
+      path : Path,
+      cancellation : Cancellation?,
+      on_progress : Proc(DownloadProgress, Nil)?,
+    ) : Nil
+      if format.filesize && File.exists?(path) && File.size(path) == format.filesize
+        return
+      end
+
+      download_source(
+        format,
+        path,
+        cancellation,
+        on_progress,
+        check_target: false,
+        overwrite: true,
+      )
+    end
+
+    private def transfer_chunked(
+      url : Format | String | URI,
+      part_path : Path,
+      total : Int64,
+      chunk_size : Int64,
+      cancellation : Cancellation?,
+      on_progress : Proc(DownloadProgress, Nil)?,
+    ) : Nil
+      validate_meta_url(part_path, url)
+      failures = 0
+
+      loop do
+        offset = File.exists?(part_path) ? File.size(part_path) : 0_i64
+
+        if offset > total
+          remove_part(part_path)
+          offset = 0_i64
+        end
+
+        break if offset == total
+
+        chunk_end = Math.min(offset + chunk_size - 1, total - 1)
+        expected = chunk_end - offset + 1
+        headers = HTTP::Headers.new
+        headers["Accept-Encoding"] = "identity"
+        headers["Range"] = "bytes=#{offset}-#{chunk_end}"
+
+        begin
+          File.open(part_path, offset > 0 ? "r+b" : "w+b") do |file|
+            file.seek(offset)
+            writer = ProgressWriter.new(file, part_path.to_s, offset, cancellation, on_progress)
+            writer.total = total
+            writer.emit(force: true)
+
+            @http.stream_to(url, writer, headers: headers) do |status, response_headers, _|
+              range = parse_content_range(response_headers["Content-Range"]?)
+              unless status.code == 206 &&
+                     range && range[:start] == offset && range[:end] == chunk_end
+                raise ResumeError.new(part_path.to_s, "server did not honor the range request")
+              end
+
+              if range_total = range[:total]
+                unless range_total == total
+                  raise ResumeError.new(part_path.to_s, "server reported a different total size")
+                end
+              end
+
+              write_meta(part_path, url.to_s, response_headers, total)
+            end
+
+            writer.emit(force: true)
+          end
+
+          actual = File.size(part_path)
+          unless actual == offset + expected
+            raise IncompleteDownloadError.new(part_path.to_s, offset + expected, actual)
+          end
+
+          failures = 0
+        rescue ex : NetworkError | IncompleteResponseError | IncompleteDownloadError
+          failures += 1
+          raise ex if failures > @options.retries
+          sleep(@options.retry_wait(failures))
+        rescue ex : HTTPError
+          if ex.status.code == 416 && offset > 0
+            remove_part(part_path)
+            next
+          end
+
+          raise ex unless retryable_status?(ex.status)
+
+          failures += 1
+          raise ex if failures > @options.retries
+          sleep(@options.retry_wait(failures))
+        end
+      end
+
+      actual = File.exists?(part_path) ? File.size(part_path) : 0_i64
+      return if actual == total
+
+      raise IncompleteDownloadError.new(part_path.to_s, total, actual)
     end
 
     private def transfer(
@@ -311,15 +494,15 @@ module Rill
       raise IncompleteDownloadError.new(part_path.to_s, expected_total, actual)
     end
 
-    private def publish(part_path : Path, target_path : Path) : Nil
-      if !@overwrite && File.exists?(target_path)
+    private def publish(part_path : Path, target_path : Path, overwrite : Bool) : Nil
+      if !overwrite && File.exists?(target_path)
         raise FileExistsError.new(target_path.to_s)
       end
 
       begin
         File.rename(part_path, target_path)
       rescue ex : File::Error
-        unless @overwrite && File.exists?(target_path)
+        unless overwrite && File.exists?(target_path)
           raise FileExistsError.new(target_path.to_s)
         end
 

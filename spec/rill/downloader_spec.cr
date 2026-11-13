@@ -17,12 +17,18 @@ private def downloader(
   retries : Int32 = 2,
   resume : Bool = true,
   overwrite : Bool = false,
+  media_muxer : Rill::MediaMuxer = Rill::MediaMuxer.new(Rill::MediaMuxer::Backend::System),
 ) : Rill::Downloader
   options = Rill::RequestOptions.new
   options.retries = retries
   options.retry_delay = Time::Span.zero
   options.read_timeout = 1.second
-  Rill::Downloader.new(options, resume: resume, overwrite: overwrite)
+  Rill::Downloader.new(
+    options,
+    resume: resume,
+    overwrite: overwrite,
+    media_muxer: media_muxer,
+  )
 end
 
 private def hls_format(url : String) : Rill::Format
@@ -522,6 +528,129 @@ describe Rill::Downloader do
         expect_raises(Rill::UnsupportedManifestError, /byte ranges/) do
           downloader.download(hls_format("#{server.url}/hls/media.m3u8"), target)
         end
+      end
+    ensure
+      server.close
+    end
+  end
+
+  it "downloads and merges a split video and audio plan" do
+    unless Process.run(
+             "ffmpeg",
+             ["-version"],
+             output: Process::Redirect::Close,
+             error: Process::Redirect::Close,
+           ).success?
+      pending "ffmpeg is not installed"
+      next
+    end
+
+    with_temp_dir do |directory|
+      video_path = directory / "input.mp4"
+      audio_path = directory / "input.m4a"
+
+      Process.run(
+        "ffmpeg",
+        [
+          "-hide_banner", "-loglevel", "error", "-y",
+          "-f", "lavfi", "-i", "color=c=black:s=160x120:d=1",
+          "-an", "-c:v", "mpeg4", video_path.to_s,
+        ],
+        output: Process::Redirect::Close,
+        error: Process::Redirect::Close,
+      ).success?.should be_true
+
+      Process.run(
+        "ffmpeg",
+        [
+          "-hide_banner", "-loglevel", "error", "-y",
+          "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+          "-vn", "-c:a", "aac", audio_path.to_s,
+        ],
+        output: Process::Redirect::Close,
+        error: Process::Redirect::Close,
+      ).success?.should be_true
+
+      video_bytes = File.read(video_path)
+      audio_bytes = File.read(audio_path)
+
+      server = TestHTTPServer.new
+      server.on("/video.mp4") do |_, response|
+        response.content_length = video_bytes.bytesize
+        response.print(video_bytes)
+      end
+      server.on("/audio.m4a") do |_, response|
+        response.content_length = audio_bytes.bytesize
+        response.print(audio_bytes)
+      end
+      server.start
+
+      begin
+        target = directory / "merged.mp4"
+        video = Rill::Format.new(
+          format_id: "video",
+          url: URI.parse("#{server.url}/video.mp4"),
+          kind: Rill::FormatKind::Video,
+          container: "mp4",
+          filesize: video_bytes.bytesize.to_i64,
+        )
+        audio = Rill::Format.new(
+          format_id: "audio",
+          url: URI.parse("#{server.url}/audio.m4a"),
+          kind: Rill::FormatKind::Audio,
+          container: "mp4",
+          filesize: audio_bytes.bytesize.to_i64,
+        )
+        plan = Rill::DownloadPlan.new(video, audio)
+
+        downloader.download(plan, target)
+
+        File.size(target).should be > 0
+        File.exists?(Path.new("#{target}.video")).should be_false
+        File.exists?(Path.new("#{target}.audio")).should be_false
+      ensure
+        server.close
+      end
+    end
+  end
+
+  it "downloads range-chunked formats in fixed windows" do
+    body = "x" * 2_500_000
+    ranges = [] of String
+
+    server = TestHTTPServer.new
+    server.on("/file") do |request, response|
+      range = request.headers["Range"]?.not_nil!
+      ranges << range
+      match = /bytes=(\d+)-(\d+)/.match(range).not_nil!
+      start = match[1].to_i64
+      finish = match[2].to_i64
+
+      response.status = :partial_content
+      response.headers["Content-Range"] = "bytes #{start}-#{finish}/#{body.bytesize}"
+      response.content_length = finish - start + 1
+      response.print(body.byte_slice(start, finish - start + 1))
+    end
+    server.start
+
+    begin
+      with_temp_dir do |directory|
+        target = directory / "file.bin"
+        format = Rill::Format.new(
+          format_id: "file",
+          url: URI.parse("#{server.url}/file"),
+          filesize: body.bytesize.to_i64,
+          range_chunk_size: 1024_i64 * 1024,
+        )
+
+        downloader.download(format, target)
+
+        File.read(target).should eq(body)
+        ranges.should eq([
+          "bytes=0-1048575",
+          "bytes=1048576-2097151",
+          "bytes=2097152-2499999",
+        ])
       end
     ensure
       server.close

@@ -187,6 +187,7 @@ module Rill::CLI
     force = false
     resume = true
     playlist_mode = false
+    media_backend = MediaMuxer.backend_from_environment
     json = false
     help = false
 
@@ -205,6 +206,9 @@ module Rill::CLI
     parser.on("--force", "Overwrite an existing file") { force = true }
     parser.on("--no-resume", "Do not resume an existing part file") { resume = false }
     parser.on("--playlist", "Download every entry in a playlist") { playlist_mode = true }
+    parser.on("--media-backend MODE", "auto, helper, system, or off") do |value|
+      media_backend = MediaMuxer.parse_backend(value) || raise OptionParser::InvalidOption.new(value)
+    end
     parser.on("-j", "--json", "Print JSON") { json = true }
     add_request_options(parser, options)
     parser.on("-h", "--help", "Show this help") { help = true }
@@ -253,27 +257,28 @@ module Rill::CLI
         format_id,
         resume,
         force,
+        media_backend,
         cancellation,
       )
     end
 
     media = result
-    format = if requested = format_id
-               FormatSelector.by_id(media.formats, requested)
-             else
-               FormatSelector.best(media.formats)
-             end
+    plan = FormatSelector.plan(media.formats, format_id)
 
-    unless format
+    unless plan
       STDERR.puts format_id ? "unknown format: #{format_id}" : "no downloadable formats"
       return 1
+    end
+
+    if plan.stream.kind.video? && plan.audio.nil?
+      STDERR.puts "no audio track is available for this video"
     end
 
     target = if explicit = output
                Path.new(explicit)
              else
                Dir.mkdir_p(directory)
-               OutputFileName.resolve(directory, media.title, format.container)
+               OutputFileName.resolve(directory, media.title, plan.container)
              end
 
     cancellation = Cancellation.new
@@ -282,17 +287,18 @@ module Rill::CLI
 
     on_progress = ->(progress : DownloadProgress) { print_progress(progress) }
     path = client.download(
-      format,
+      plan,
       target,
       cancellation,
       on_progress,
       resume: resume,
       overwrite: force,
+      media_backend: media_backend,
     )
     clear_progress_line
 
     if json
-      puts download_json(path, format)
+      puts download_json(path, plan)
     else
       puts path
     end
@@ -327,6 +333,7 @@ module Rill::CLI
     format_id : String?,
     resume : Bool,
     force : Bool,
+    media_backend : MediaMuxer::Backend,
     cancellation : Cancellation,
   ) : Int32
     Dir.mkdir_p(directory)
@@ -346,18 +353,22 @@ module Rill::CLI
           raise DownloadError.new("entry is another playlist")
         end
 
-        format = if requested = format_id
-                   FormatSelector.by_id(result.formats, requested)
-                 else
-                   FormatSelector.best(result.formats)
-                 end
-        unless format
+        plan = FormatSelector.plan(result.formats, format_id)
+        unless plan
           raise DownloadError.new("no downloadable formats")
         end
 
-        target = OutputFileName.resolve(directory, result.title, format.container)
+        target = OutputFileName.resolve(directory, result.title, plan.container)
         STDERR.puts "[#{index + 1}/#{total}] #{result.title}"
-        path = client.download(format, target, cancellation, nil, resume: resume, overwrite: force)
+        path = client.download(
+          plan,
+          target,
+          cancellation,
+          nil,
+          resume: resume,
+          overwrite: force,
+          media_backend: media_backend,
+        )
         puts path
       rescue ex : CancelledError
         raise ex
@@ -406,12 +417,13 @@ module Rill::CLI
     end
   end
 
-  private def self.download_json(path : Path, format : Format) : String
+  private def self.download_json(path : Path, plan : DownloadPlan) : String
     JSON.build(indent: 2) do |json|
       json.object do
         json.field "path", path.to_s
-        json.field "format_id", format.format_id
-        json.field "url", format.url.to_s
+        json.field "format_id", plan.stream.format_id
+        json.field "url", plan.stream.url.to_s
+        json.field "audio_format_id", plan.audio.try(&.format_id)
       end
     end
   end
