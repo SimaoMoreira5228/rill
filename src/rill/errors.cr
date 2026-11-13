@@ -75,4 +75,10 @@ module Rill
       super("invalid URL #{@url}: #{reason}")
     end
   end
+
+  class InvalidOptionsError < Error
+    def initialize(reason : String)
+      super("invalid request options: #{reason}")
+    end
+  end
 end
