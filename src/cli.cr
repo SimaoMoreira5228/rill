@@ -71,12 +71,17 @@ module Rill::CLI
       return 2
     end
 
-    media = Client.new(options).extract(remaining.first)
+    result = Client.new(options).extract(remaining.first)
 
     if json
-      puts command == "formats" ? formats_json(media) : media.to_pretty_json
+      puts command == "formats" ? formats_json(result) : result.to_pretty_json
     else
-      print_media(media, formats_only: command == "formats")
+      case result
+      when Playlist
+        print_playlist(result)
+      when Media
+        print_media(result, formats_only: command == "formats")
+      end
     end
 
     0
@@ -159,7 +164,12 @@ module Rill::CLI
     end
 
     client = Client.new(options)
-    media = client.extract(remaining.first)
+    result = client.extract(remaining.first)
+    unless result.is_a?(Media)
+      STDERR.puts "URL is a playlist; download an individual entry"
+      return 1
+    end
+    media = result
     format = if requested = format_id
                FormatSelector.by_id(media.formats, requested)
              else
@@ -269,11 +279,37 @@ module Rill::CLI
     options.cookies[name.strip] = cookie_value.strip
   end
 
-  private def self.formats_json(media : Media) : String
+  private def self.formats_json(result : Media | Playlist) : String
     JSON.build(indent: 2) do |json|
       json.array do
-        media.formats.each(&.to_json(json))
+        case result
+        when Media
+          result.formats.each(&.to_json(json))
+        when Playlist
+          result.entries.each do |entry|
+            json.object do
+              json.field "url", entry.url.to_s
+              json.field "title", entry.title
+              json.field "id", entry.id
+            end
+          end
+        end
       end
+    end
+  end
+
+  private def self.print_playlist(playlist : Playlist) : Nil
+    puts "Title: #{playlist.title}"
+    puts "Extractor: #{playlist.extractor}"
+    puts "ID: #{playlist.id}" if playlist.id
+    puts "Webpage: #{playlist.webpage_url}"
+    puts
+    puts "Entries: #{playlist.entries.size}"
+
+    playlist.entries.each_with_index do |entry, index|
+      puts "  [#{index + 1}] #{entry.title || entry.url}"
+      puts "      #{entry.url}"
+      puts "      error: #{entry.error}" if entry.error
     end
   end
 

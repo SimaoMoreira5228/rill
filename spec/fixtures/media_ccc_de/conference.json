@@ -1,0 +1,27 @@
+{
+  "acronym": "39c3",
+  "title": "39C3: Power Cycles",
+  "slug": "39c3",
+  "url": "https://media.ccc.de/public/conferences/39c3",
+  "events": [
+    {
+      "guid": "event-1",
+      "title": "FAFO: How we stopped worrying",
+      "frontend_link": "https://media.ccc.de/v/39c3-sos-fafo"
+    },
+    {
+      "guid": "event-2",
+      "title": "Infrastructure Review",
+      "slug": "39c3-infrastructure-review"
+    },
+    {
+      "guid": "event-3",
+      "title": "No usable link"
+    },
+    {
+      "guid": "event-4",
+      "title": "Bad link",
+      "frontend_link": "ftp://example.com/nope"
+    }
+  ]
+}

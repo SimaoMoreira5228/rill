@@ -8,6 +8,7 @@ require "./extractor_registry"
 require "./format"
 require "./http_client"
 require "./media"
+require "./playlist"
 require "./request_options"
 
 module Rill
@@ -23,7 +24,7 @@ module Rill
       @http = HTTPClient.new(@options)
     end
 
-    def extract(url : String | URI) : Media
+    def extract(url : String | URI) : Media | Playlist
       @registry.extract(url, @http)
     end
 

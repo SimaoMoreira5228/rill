@@ -69,6 +69,8 @@ describe Rill::ExtractorRegistry do
       .should eq(Rill::Extractors::DirectMedia)
     registry.extractor_for("https://example.com/playlist.m3u8")
       .should eq(Rill::Extractors::Hls)
+    registry.extractor_for("https://example.com/list.m3u")
+      .should eq(Rill::Extractors::M3u)
     registry.extractor_for("https://example.com/watch").should be_nil
   end
 

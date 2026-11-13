@@ -55,7 +55,7 @@ describe Rill::Client do
       registry.register(SessionSpecExtractor::Cached)
       client = Rill::Client.new(registry: registry)
 
-      media = client.extract("https://example.com/watch")
+      media = client.extract("https://example.com/watch").as(Rill::Media)
       target = Path.new(directory) / "file.bin"
       client.download(media.formats.first, target)
 

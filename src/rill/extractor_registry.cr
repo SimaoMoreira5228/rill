@@ -5,8 +5,10 @@ require "./extractor"
 require "./extractors/direct_media"
 require "./extractors/hls"
 require "./extractors/internet_archive"
+require "./extractors/m3u"
 require "./extractors/media_ccc_de"
 require "./http_client"
+require "./playlist"
 require "./request_options"
 
 module Rill
@@ -16,6 +18,7 @@ module Rill
       registry.register(Extractors::InternetArchive)
       registry.register(Extractors::MediaCccDe)
       registry.register(Extractors::Hls)
+      registry.register(Extractors::M3u)
       registry.register(Extractors::DirectMedia)
       registry
     end
@@ -41,20 +44,25 @@ module Rill
       nil
     end
 
-    def extract(url : String | URI, options : RequestOptions = RequestOptions.new) : Media
+    def extract(url : String | URI, options : RequestOptions = RequestOptions.new) : Media | Playlist
       extract(url, HTTPClient.new(options))
     end
 
-    def extract(url : String | URI, client : HTTPClient) : Media
+    def extract(url : String | URI, client : HTTPClient) : Media | Playlist
       uri = parse_url(url)
       extractor = extractor_for(uri)
       unless extractor
         raise UnsupportedUrlError.new(uri.to_s)
       end
 
-      media = extractor.new.extract(uri, client)
-      media.validate!
-      media
+      result = extractor.new.extract(uri, client)
+      case result
+      when Media
+        result.validate!
+      when Playlist
+        result.validate!
+      end
+      result
     end
 
     private def parse_url(url : String | URI) : URI

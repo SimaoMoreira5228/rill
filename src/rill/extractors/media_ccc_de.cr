@@ -10,6 +10,7 @@ module Rill::Extractors
   class MediaCccDe < Extractor
     DEFAULT_API_BASE = "https://media.ccc.de"
     EVENT_PATH       = %r{\A/v/([^/]+)/?\z}
+    CONFERENCE_PATH  = %r{\A/(?:c|conferences)/([^/]+)/?\z}
 
     def initialize(@api_base : String = DEFAULT_API_BASE)
     end
@@ -22,26 +23,24 @@ module Rill::Extractors
       return false unless url.scheme == "http" || url.scheme == "https"
       return false unless host?(url.host)
 
-      !EVENT_PATH.match(url.path).nil?
+      path = url.path
+      !EVENT_PATH.match(path).nil? || !CONFERENCE_PATH.match(path).nil?
     end
 
-    def extract(url : URI, client : HTTPClient) : Media
-      slug = slug_for(url)
-      unless slug
+    def extract(url : URI, client : HTTPClient) : Media | Playlist
+      if slug = slug_for(url, EVENT_PATH)
+        extract_event(url, client, slug)
+      elsif acronym = slug_for(url, CONFERENCE_PATH)
+        extract_conference(url, client, acronym)
+      else
         raise UnsupportedUrlError.new(url.to_s)
       end
+    end
 
+    private def extract_event(url : URI, client : HTTPClient, slug : String) : Media
       api_url = URI.parse("#{@api_base}/public/events/#{URI.encode_path_segment(slug)}")
-      response = begin
-        client.get(api_url)
-      rescue ex : HTTPError
-        if ex.status.code == 404
-          raise MediaUnavailableError.new(url.to_s, "event not found")
-        end
-        raise ex
-      end
+      payload = api_payload(client, api_url, url, "event")
 
-      payload = parse_payload(response.body, url)
       formats = formats_from(payload["recordings"]?)
       if formats.empty?
         raise MediaUnavailableError.new(url.to_s, "event has no downloadable recordings")
@@ -61,6 +60,56 @@ module Rill::Extractors
       )
     end
 
+    private def extract_conference(
+      url : URI,
+      client : HTTPClient,
+      acronym : String,
+    ) : Playlist
+      api_url = URI.parse("#{@api_base}/public/conferences/#{URI.encode_path_segment(acronym)}")
+      payload = api_payload(client, api_url, url, "conference")
+
+      entries = [] of PlaylistEntry
+      events = payload["events"]?.try(&.as_a?) || [] of JSON::Any
+
+      events.each do |event|
+        entry_url = event_url(event)
+        next unless entry_url
+
+        entries << PlaylistEntry.new(
+          url: entry_url,
+          title: scalar_string(event["title"]?),
+          id: scalar_string(event["guid"]?),
+        )
+      end
+
+      if entries.empty?
+        raise MediaUnavailableError.new(url.to_s, "conference has no events")
+      end
+
+      Playlist.new(
+        id: acronym,
+        title: scalar_string(payload["title"]?) || acronym,
+        webpage_url: url,
+        extractor: name,
+        entries: entries,
+      )
+    end
+
+    private def api_payload(
+      client : HTTPClient,
+      api_url : URI,
+      url : URI,
+      subject : String,
+    ) : JSON::Any
+      response = client.get(api_url)
+      parse_payload(response.body, url)
+    rescue ex : HTTPError
+      if ex.status.code == 404
+        raise MediaUnavailableError.new(url.to_s, "#{subject} not found")
+      end
+      raise ex
+    end
+
     private def host?(host : String?) : Bool
       case host.try(&.downcase)
       when "media.ccc.de", "www.media.ccc.de"
@@ -70,8 +119,8 @@ module Rill::Extractors
       end
     end
 
-    private def slug_for(url : URI) : String?
-      match = EVENT_PATH.match(url.path)
+    private def slug_for(url : URI, pattern : Regex) : String?
+      match = pattern.match(url.path)
       return nil unless match
 
       slug = URI.decode(match[1])
@@ -81,7 +130,7 @@ module Rill::Extractors
     private def parse_payload(body : String, url : URI) : JSON::Any
       JSON.parse(body)
     rescue JSON::ParseException
-      raise MediaUnavailableError.new(url.to_s, "event metadata is not valid JSON")
+      raise MediaUnavailableError.new(url.to_s, "metadata is not valid JSON")
     end
 
     private def formats_from(recordings_value : JSON::Any?) : Array(Format)
@@ -170,6 +219,19 @@ module Rill::Extractors
 
       names = array.compact_map(&.as_s?)
       names.empty? ? nil : names.join(", ")
+    end
+
+    private def event_url(event : JSON::Any) : URI?
+      value = scalar_string(event["frontend_link"]?) || scalar_string(event["link"]?)
+
+      if value.nil?
+        slug = scalar_string(event["slug"]?)
+        value = "#{DEFAULT_API_BASE}/v/#{URI.encode_path_segment(slug)}" if slug
+      end
+
+      return nil unless value
+      value = value.sub("/public/events/", "/v/")
+      parse_uri(value)
     end
 
     private def thumbnail_url(payload : JSON::Any) : URI?

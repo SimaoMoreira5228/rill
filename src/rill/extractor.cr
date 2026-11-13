@@ -5,6 +5,7 @@ require "./errors"
 require "./format"
 require "./http_client"
 require "./media"
+require "./playlist"
 
 module Rill
   abstract class Extractor
@@ -12,6 +13,6 @@ module Rill
 
     abstract def matches?(url : URI) : Bool
 
-    abstract def extract(url : URI, client : HTTPClient) : Media
+    abstract def extract(url : URI, client : HTTPClient) : Media | Playlist
   end
 end

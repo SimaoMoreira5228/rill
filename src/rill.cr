@@ -7,9 +7,11 @@ require "./rill/http_client"
 require "./rill/format"
 require "./rill/media"
 require "./rill/extractor"
+require "./rill/playlist"
 require "./rill/extractors/direct_media"
 require "./rill/extractors/hls"
 require "./rill/extractors/internet_archive"
+require "./rill/extractors/m3u"
 require "./rill/extractors/media_ccc_de"
 require "./rill/extractor_registry"
 require "./rill/format_selector"
@@ -21,7 +23,7 @@ require "./rill/downloader"
 require "./rill/client"
 
 module Rill
-  def self.extract(url : String | URI, options : RequestOptions = RequestOptions.new) : Media
+  def self.extract(url : String | URI, options : RequestOptions = RequestOptions.new) : Media | Playlist
     ExtractorRegistry.default.extract(url, options)
   end
 end

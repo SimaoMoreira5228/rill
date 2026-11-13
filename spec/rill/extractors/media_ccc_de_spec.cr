@@ -15,7 +15,8 @@ describe Rill::Extractors::MediaCccDe do
     extractor.matches?(URI.parse(ccc_event_url)).should be_true
     extractor.matches?(URI.parse("https://www.media.ccc.de/v/some-talk/")).should be_true
 
-    extractor.matches?(URI.parse("https://media.ccc.de/c/39c3")).should be_false
+    extractor.matches?(URI.parse("https://media.ccc.de/c/39c3")).should be_true
+    extractor.matches?(URI.parse("https://media.ccc.de/conferences/39c3")).should be_true
     extractor.matches?(URI.parse("https://example.com/v/some-talk")).should be_false
     extractor.matches?(URI.parse("ftp://media.ccc.de/v/some-talk")).should be_false
   end
@@ -30,7 +31,7 @@ describe Rill::Extractors::MediaCccDe do
 
     begin
       extractor = Rill::Extractors::MediaCccDe.new(server.url)
-      media = extractor.extract(URI.parse(ccc_event_url), Rill::HTTPClient.new)
+      media = extractor.extract(URI.parse(ccc_event_url), Rill::HTTPClient.new).as(Rill::Media)
       media.validate!
 
       media.id.should eq("958d3055-3929-56b8-b71c-25b3a64f1902")
@@ -57,6 +58,34 @@ describe Rill::Extractors::MediaCccDe do
 
       av1 = media.formats.find { |format| format.video_codec == "av01" }.not_nil!
       av1.container.should eq("webm")
+    ensure
+      server.close
+    end
+  end
+
+  it "extracts conference events as a playlist" do
+    server = TestHTTPServer.new
+    server.on("/public/conferences/39c3") do |_, response|
+      response.content_type = "application/json"
+      response.print(fixture("media_ccc_de", "conference.json"))
+    end
+    server.start
+
+    begin
+      extractor = Rill::Extractors::MediaCccDe.new(server.url)
+      playlist = extractor.extract(
+        URI.parse("https://media.ccc.de/c/39c3"),
+        Rill::HTTPClient.new,
+      ).as(Rill::Playlist)
+      playlist.validate!
+
+      playlist.id.should eq("39c3")
+      playlist.title.should eq("39C3: Power Cycles")
+      playlist.entries.size.should eq(2)
+      playlist.entries[0].id.should eq("event-1")
+      playlist.entries[0].title.should eq("FAFO: How we stopped worrying")
+      playlist.entries[0].url.to_s.should eq("https://media.ccc.de/v/39c3-sos-fafo")
+      playlist.entries[1].url.to_s.should eq("https://media.ccc.de/v/39c3-infrastructure-review")
     ensure
       server.close
     end
