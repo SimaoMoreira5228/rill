@@ -123,6 +123,7 @@ module Rill::CLI
     format_id : String? = nil
     force = false
     resume = true
+    playlist_mode = false
     json = false
     help = false
 
@@ -140,6 +141,7 @@ module Rill::CLI
     end
     parser.on("--force", "Overwrite an existing file") { force = true }
     parser.on("--no-resume", "Do not resume an existing part file") { resume = false }
+    parser.on("--playlist", "Download every entry in a playlist") { playlist_mode = true }
     parser.on("-j", "--json", "Print JSON") { json = true }
     add_request_options(parser, options)
     parser.on("-h", "--help", "Show this help") { help = true }
@@ -165,10 +167,33 @@ module Rill::CLI
 
     client = Client.new(options)
     result = client.extract(remaining.first)
-    unless result.is_a?(Media)
-      STDERR.puts "URL is a playlist; download an individual entry"
-      return 1
+
+    if result.is_a?(Playlist)
+      unless playlist_mode
+        STDERR.puts "URL is a playlist; pass --playlist to download its entries"
+        return 1
+      end
+
+      if output
+        STDERR.puts "--output cannot be used with a playlist"
+        return 2
+      end
+
+      cancellation = Cancellation.new
+      Signal::INT.trap { |_signal| cancellation.cancel! }
+      Signal::TERM.trap { |_signal| cancellation.cancel! }
+
+      return download_playlist(
+        client,
+        result,
+        directory,
+        format_id,
+        resume,
+        force,
+        cancellation,
+      )
     end
+
     media = result
     format = if requested = format_id
                FormatSelector.by_id(media.formats, requested)
@@ -226,6 +251,64 @@ module Rill::CLI
     clear_progress_line
     STDERR.puts ex.message
     1
+  end
+
+  private def self.download_playlist(
+    client : Client,
+    playlist : Playlist,
+    directory : String,
+    format_id : String?,
+    resume : Bool,
+    force : Bool,
+    cancellation : Cancellation,
+  ) : Int32
+    Dir.mkdir_p(directory)
+    failures = 0
+    total = playlist.entries.size
+
+    playlist.entries.each_with_index do |entry, index|
+      if message = entry.error
+        failures += 1
+        STDERR.puts "[#{index + 1}/#{total}] skipped: #{message}"
+        next
+      end
+
+      begin
+        result = client.extract(entry.url)
+        unless result.is_a?(Media)
+          raise DownloadError.new("entry is another playlist")
+        end
+
+        format = if requested = format_id
+                   FormatSelector.by_id(result.formats, requested)
+                 else
+                   FormatSelector.best(result.formats)
+                 end
+        unless format
+          raise DownloadError.new("no downloadable formats")
+        end
+
+        target = OutputFileName.resolve(directory, result.title, format.container)
+        STDERR.puts "[#{index + 1}/#{total}] #{result.title}"
+        path = client.download(format, target, cancellation, nil, resume: resume, overwrite: force)
+        puts path
+      rescue ex : CancelledError
+        raise ex
+      rescue ex : Rill::Error
+        failures += 1
+        STDERR.puts "  failed: #{ex.message}"
+      end
+    end
+
+    if failures > 0
+      STDERR.puts "completed with #{failures} failed #{failures == 1 ? "entry" : "entries"}"
+    end
+
+    failures.zero? ? 0 : 1
+  rescue ex : CancelledError
+    clear_progress_line
+    STDERR.puts "cancelled"
+    130
   end
 
   private def self.print_progress(progress : DownloadProgress) : Nil
