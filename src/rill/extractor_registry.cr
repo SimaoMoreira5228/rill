@@ -42,13 +42,17 @@ module Rill
     end
 
     def extract(url : String | URI, options : RequestOptions = RequestOptions.new) : Media
+      extract(url, HTTPClient.new(options))
+    end
+
+    def extract(url : String | URI, client : HTTPClient) : Media
       uri = parse_url(url)
       extractor = extractor_for(uri)
       unless extractor
         raise UnsupportedUrlError.new(uri.to_s)
       end
 
-      media = extractor.new.extract(uri, HTTPClient.new(options))
+      media = extractor.new.extract(uri, client)
       media.validate!
       media
     end

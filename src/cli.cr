@@ -71,7 +71,7 @@ module Rill::CLI
       return 2
     end
 
-    media = ExtractorRegistry.default.extract(remaining.first, options)
+    media = Client.new(options).extract(remaining.first)
 
     if json
       puts command == "formats" ? formats_json(media) : media.to_pretty_json
@@ -158,7 +158,8 @@ module Rill::CLI
       return 2
     end
 
-    media = ExtractorRegistry.default.extract(remaining.first, options)
+    client = Client.new(options)
+    media = client.extract(remaining.first)
     format = if requested = format_id
                FormatSelector.by_id(media.formats, requested)
              else
@@ -181,9 +182,15 @@ module Rill::CLI
     Signal::INT.trap { |_signal| cancellation.cancel! }
     Signal::TERM.trap { |_signal| cancellation.cancel! }
 
-    downloader = Downloader.new(options, resume: resume, overwrite: force)
     on_progress = ->(progress : DownloadProgress) { print_progress(progress) }
-    path = downloader.download(format, target, cancellation, on_progress)
+    path = client.download(
+      format,
+      target,
+      cancellation,
+      on_progress,
+      resume: resume,
+      overwrite: force,
+    )
     clear_progress_line
 
     if json

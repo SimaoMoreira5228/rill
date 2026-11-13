@@ -18,6 +18,7 @@ require "./rill/cookie_jar"
 require "./rill/download_progress"
 require "./rill/output_file_name"
 require "./rill/downloader"
+require "./rill/client"
 
 module Rill
   def self.extract(url : String | URI, options : RequestOptions = RequestOptions.new) : Media
