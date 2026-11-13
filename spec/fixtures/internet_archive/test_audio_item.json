@@ -1,0 +1,59 @@
+{
+  "created": 1578000000,
+  "dir": "/0/items/test_audio_item",
+  "files": [
+    {
+      "name": "test_audio_item_meta.xml",
+      "format": "Metadata",
+      "size": "1200"
+    },
+    {
+      "name": "track01.mp3",
+      "format": "VBR MP3",
+      "size": "3456789",
+      "length": "215.32",
+      "title": "First Track",
+      "track": "1"
+    },
+    {
+      "name": "track01.flac",
+      "format": "Flac",
+      "size": "23456789",
+      "length": "215.32",
+      "title": "First Track",
+      "track": "1"
+    },
+    {
+      "name": "track02.mp3",
+      "format": "VBR MP3",
+      "size": "2987654",
+      "length": "1:42",
+      "title": "Second Track",
+      "track": "2"
+    },
+    {
+      "name": "cover.jpg",
+      "format": "JPEG",
+      "size": "45678"
+    },
+    {
+      "name": "notes.txt",
+      "format": "Text",
+      "size": "220"
+    }
+  ],
+  "files_count": 6,
+  "metadata": {
+    "identifier": "test_audio_item",
+    "title": "Test Audio Item",
+    "creator": [
+      "Test Artist",
+      "Guest Artist"
+    ],
+    "date": "2020-01-02",
+    "mediatype": "audio",
+    "description": "A fixture item for audio extraction."
+  },
+  "server": "ia800000.us.archive.org",
+  "uniq": 1578000000
+}

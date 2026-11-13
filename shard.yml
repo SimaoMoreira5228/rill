@@ -1,0 +1,9 @@
+name: rill
+version: 0.1.0
+crystal: ">= 1.22.0"
+license: Apache-2.0
+description: Media extractor and downloader
+
+targets:
+  rill:
+    main: src/cli.cr

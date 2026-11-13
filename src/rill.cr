@@ -1,0 +1,18 @@
+require "uri"
+
+require "./rill/version"
+require "./rill/errors"
+require "./rill/request_options"
+require "./rill/http_client"
+require "./rill/format"
+require "./rill/media"
+require "./rill/extractor"
+require "./rill/extractors/direct_media"
+require "./rill/extractors/internet_archive"
+require "./rill/extractor_registry"
+
+module Rill
+  def self.extract(url : String | URI, options : RequestOptions = RequestOptions.new) : Media
+    ExtractorRegistry.default.extract(url, options)
+  end
+end

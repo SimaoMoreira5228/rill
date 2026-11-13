@@ -1,0 +1,95 @@
+require "../spec_helper"
+
+module SpecExtractors
+  class First < Rill::Extractor
+    def name : String
+      "first"
+    end
+
+    def matches?(url : URI) : Bool
+      true
+    end
+
+    def extract(url : URI, client : Rill::HTTPClient) : Rill::Media
+      Rill::Media.new(
+        title: "first",
+        webpage_url: url,
+        extractor: name,
+        formats: [
+          Rill::Format.new(format_id: "f", url: url),
+        ],
+      )
+    end
+  end
+
+  class Second < First
+    def name : String
+      "second"
+    end
+  end
+
+  class Broken < Rill::Extractor
+    def name : String
+      "broken"
+    end
+
+    def matches?(url : URI) : Bool
+      true
+    end
+
+    def extract(url : URI, client : Rill::HTTPClient) : Rill::Media
+      Rill::Media.new(
+        title: "broken",
+        webpage_url: url,
+        extractor: name,
+        formats: [] of Rill::Format,
+      )
+    end
+  end
+end
+
+describe Rill::ExtractorRegistry do
+  it "uses registration order when extractors overlap" do
+    registry = Rill::ExtractorRegistry.new
+    registry.register(SpecExtractors::First)
+    registry.register(SpecExtractors::Second)
+
+    registry.extractor_for("https://example.com/video").should eq(SpecExtractors::First)
+    registry.extract("https://example.com/video").title.should eq("first")
+  end
+
+  it "routes built-in extractors" do
+    registry = Rill::ExtractorRegistry.default
+
+    registry.extractor_for("https://archive.org/details/BigBuckBunny_124")
+      .should eq(Rill::Extractors::InternetArchive)
+    registry.extractor_for("https://example.com/clip.mp4")
+      .should eq(Rill::Extractors::DirectMedia)
+    registry.extractor_for("https://example.com/watch").should be_nil
+  end
+
+  it "rejects unsupported URLs" do
+    registry = Rill::ExtractorRegistry.new
+
+    expect_raises(Rill::UnsupportedUrlError) do
+      registry.extract("https://example.com/watch")
+    end
+
+    expect_raises(Rill::UnsupportedUrlError) do
+      registry.extract("ftp://example.com/watch")
+    end
+
+    expect_raises(Rill::UnsupportedUrlError) do
+      registry.extract("not a url")
+    end
+  end
+
+  it "validates extractor output at the boundary" do
+    registry = Rill::ExtractorRegistry.new
+    registry.register(SpecExtractors::Broken)
+
+    expect_raises(Rill::InvalidExtractionError, /no formats/) do
+      registry.extract("https://example.com/video")
+    end
+  end
+end
