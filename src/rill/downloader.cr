@@ -6,6 +6,8 @@ require "./cancellation"
 require "./download_progress"
 require "./errors"
 require "./format"
+require "./hls/parser"
+require "./hls/playlist"
 require "./http_client"
 require "./request_options"
 
@@ -80,7 +82,11 @@ module Rill
       cancellation : Cancellation? = nil,
       on_progress : Proc(DownloadProgress, Nil)? = nil,
     ) : Path
-      url = source.is_a?(Format) ? source.url : source
+      url = case source
+            when Format then source.url
+            else             source
+            end
+      format = source.is_a?(Format) ? source : nil
       target_path = Path.new(target.to_s)
       part_path = Path.new("#{target_path}#{PART_SUFFIX}")
 
@@ -88,9 +94,14 @@ module Rill
         raise FileExistsError.new(target_path.to_s)
       end
 
-      File.delete(part_path) if !@resume && File.exists?(part_path)
+      if format.try(&.protocol.hls?)
+        File.delete(part_path) if File.exists?(part_path)
+        transfer_hls(url, part_path, cancellation, on_progress)
+      else
+        File.delete(part_path) if !@resume && File.exists?(part_path)
+        transfer(url, part_path, cancellation, on_progress)
+      end
 
-      transfer(url, part_path, cancellation, on_progress)
       publish(part_path, target_path)
       target_path
     rescue ex : File::Error
@@ -154,6 +165,58 @@ module Rill
       {
         408, 425, 429, 500, 502, 503, 504,
       }.includes?(status.code)
+    end
+
+    private def transfer_hls(
+      url : String | URI,
+      part_path : Path,
+      cancellation : Cancellation?,
+      on_progress : Proc(DownloadProgress, Nil)?,
+    ) : Nil
+      response = @http.get(url)
+      playlist = Hls::Parser.parse(response.body, response.url)
+
+      unless playlist.is_a?(Hls::MediaPlaylist)
+        raise UnsupportedManifestError.new("nested HLS master playlists are not supported")
+      end
+
+      validate_hls(playlist)
+
+      File.open(part_path, "w+b") do |file|
+        writer = ProgressWriter.new(file, part_path.to_s, 0_i64, cancellation, on_progress)
+        writer.emit(force: true)
+
+        if map_url = playlist.map_url
+          @http.stream_to(map_url, writer)
+        end
+
+        playlist.segments.each do |segment|
+          @http.stream_to(segment.url, writer)
+        end
+
+        writer.emit(force: true)
+      end
+    rescue ex : Rill::Error | IO::Error
+      File.delete(part_path) if File.exists?(part_path)
+      raise ex
+    end
+
+    private def validate_hls(playlist : Hls::MediaPlaylist) : Nil
+      if playlist.encrypted
+        raise UnsupportedManifestError.new("encrypted HLS playlists are not supported")
+      end
+
+      unless playlist.ended
+        raise UnsupportedManifestError.new("live HLS playlists are not supported")
+      end
+
+      if playlist.map_byte_range
+        raise UnsupportedManifestError.new("HLS map byte ranges are not supported")
+      end
+
+      if playlist.segments.any? { |segment| segment.byte_range }
+        raise UnsupportedManifestError.new("HLS segment byte ranges are not supported")
+      end
     end
 
     private def current_offset(part_path : Path) : Int64

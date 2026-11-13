@@ -8,11 +8,18 @@ module Rill
     Combined
   end
 
+  enum FormatProtocol
+    Http
+    Hls
+  end
+
   class Format
     getter format_id : String
     getter url : URI
     getter kind : FormatKind
+    getter protocol : FormatProtocol
     getter container : String?
+    getter bitrate : Int64?
     getter video_codec : String?
     getter audio_codec : String?
     getter width : Int32?
@@ -29,7 +36,9 @@ module Rill
       @format_id : String,
       @url : URI,
       @kind : FormatKind = FormatKind::Combined,
+      @protocol : FormatProtocol = FormatProtocol::Http,
       @container : String? = nil,
+      @bitrate : Int64? = nil,
       @video_codec : String? = nil,
       @audio_codec : String? = nil,
       @width : Int32? = nil,
@@ -49,7 +58,9 @@ module Rill
         json.field "format_id", format_id
         json.field "url", url.to_s
         json.field "kind", kind.to_s.downcase
+        json.field "protocol", protocol.to_s.downcase
         json.field "container", container
+        json.field "bitrate", bitrate
         json.field "video_codec", video_codec
         json.field "audio_codec", audio_codec
         json.field "width", width

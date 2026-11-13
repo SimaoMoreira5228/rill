@@ -34,7 +34,8 @@ module Rill::FormatSelector
       {
         format.height || 0,
         CONTAINER_RANK[format.container || ""]? || 0,
-        format.video_bitrate || 0,
+        (format.video_bitrate || 0).to_i64,
+        format.bitrate || 0_i64,
         format.filesize || 0_i64,
       }
     end || formats.first

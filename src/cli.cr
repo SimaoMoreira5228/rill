@@ -297,6 +297,7 @@ module Rill::CLI
   private def self.format_details(format : Format) : String
     details = [] of String
     details << format.kind.to_s.downcase
+    details << format.protocol.to_s.downcase if format.protocol.hls?
 
     if container = format.container
       details << container

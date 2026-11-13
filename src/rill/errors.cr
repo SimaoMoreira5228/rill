@@ -82,6 +82,12 @@ module Rill
     end
   end
 
+  class ManifestError < Error
+  end
+
+  class UnsupportedManifestError < ManifestError
+  end
+
   class CancelledError < Error
     def initialize
       super("operation cancelled")

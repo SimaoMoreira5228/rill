@@ -3,6 +3,7 @@ require "uri"
 require "./errors"
 require "./extractor"
 require "./extractors/direct_media"
+require "./extractors/hls"
 require "./extractors/internet_archive"
 require "./http_client"
 require "./request_options"
@@ -12,6 +13,7 @@ module Rill
     def self.default : self
       registry = new
       registry.register(Extractors::InternetArchive)
+      registry.register(Extractors::Hls)
       registry.register(Extractors::DirectMedia)
       registry
     end

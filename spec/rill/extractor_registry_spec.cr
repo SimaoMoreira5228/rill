@@ -65,6 +65,8 @@ describe Rill::ExtractorRegistry do
       .should eq(Rill::Extractors::InternetArchive)
     registry.extractor_for("https://example.com/clip.mp4")
       .should eq(Rill::Extractors::DirectMedia)
+    registry.extractor_for("https://example.com/playlist.m3u8")
+      .should eq(Rill::Extractors::Hls)
     registry.extractor_for("https://example.com/watch").should be_nil
   end
 
