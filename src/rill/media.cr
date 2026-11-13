@@ -41,6 +41,8 @@ module Rill
         raise InvalidExtractionError.new(webpage_url.to_s, "no formats")
       end
 
+      validate_duration!(duration_seconds, "media duration")
+
       format_ids = Set(String).new
       formats.each do |format|
         validate_format!(format, format_ids)
@@ -84,6 +86,52 @@ module Rill
 
       unless format_ids.add?(format.format_id)
         raise InvalidExtractionError.new(webpage_url.to_s, "duplicate format id #{format.format_id}")
+      end
+
+      validate_duration!(format.duration_seconds, "format #{format.format_id} duration")
+      validate_positive!(format.width, "format #{format.format_id} width")
+      validate_positive!(format.height, "format #{format.format_id} height")
+      validate_non_negative!(format.filesize, "format #{format.format_id} filesize")
+      validate_non_negative!(format.video_bitrate, "format #{format.format_id} video bitrate")
+      validate_non_negative!(format.audio_bitrate, "format #{format.format_id} audio bitrate")
+      validate_non_negative!(format.bitrate, "format #{format.format_id} bitrate")
+
+      if fps = format.fps
+        unless fps.finite? && fps > 0
+          raise InvalidExtractionError.new(webpage_url.to_s, "format #{format.format_id} has an invalid fps")
+        end
+      end
+    end
+
+    private def validate_duration!(value : Float64?, label : String) : Nil
+      return unless value
+
+      unless value.finite? && value >= 0
+        raise InvalidExtractionError.new(webpage_url.to_s, "#{label} is invalid")
+      end
+    end
+
+    private def validate_positive!(value : Int32?, label : String) : Nil
+      return unless value
+
+      if value <= 0
+        raise InvalidExtractionError.new(webpage_url.to_s, "#{label} is invalid")
+      end
+    end
+
+    private def validate_non_negative!(value : Int32?, label : String) : Nil
+      return unless value
+
+      if value < 0
+        raise InvalidExtractionError.new(webpage_url.to_s, "#{label} is invalid")
+      end
+    end
+
+    private def validate_non_negative!(value : Int64?, label : String) : Nil
+      return unless value
+
+      if value < 0
+        raise InvalidExtractionError.new(webpage_url.to_s, "#{label} is invalid")
       end
     end
   end

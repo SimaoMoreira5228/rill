@@ -24,6 +24,11 @@ module Rill
     property retry_delay : Time::Span = DEFAULT_RETRY_DELAY
     property max_response_bytes : Int64 = DEFAULT_MAX_RESPONSE_BYTES
 
+    def retry_wait(attempt : Int32) : Time::Span
+      exponent = Math.min(attempt - 1, 5)
+      @retry_delay * (1 << exponent)
+    end
+
     def self.from_json(source : String) : RequestOptions
       object = begin
         JSON.parse(source)
@@ -160,6 +165,10 @@ module Rill
 
       if options.retries < 0
         raise InvalidOptionsError.new("retries must not be negative")
+      end
+
+      if options.retries > 10
+        raise InvalidOptionsError.new("retries must not exceed 10")
       end
 
       if options.max_response_bytes <= 0

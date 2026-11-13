@@ -37,12 +37,13 @@ module Rill::Extractors
       playlist : Rill::Hls::MultivariantPlaylist,
       url : URI,
     ) : Media
-      formats = playlist.variants.map_with_index do |variant, index|
-        format_for_variant(variant, index)
+      variants = playlist.variants.reject { |variant| variant.audio_group }
+      if variants.empty?
+        raise UnsupportedManifestError.new("HLS variants with separate audio are not supported")
       end
 
-      if formats.empty?
-        raise MediaUnavailableError.new(url.to_s, "playlist has no variants")
+      formats = variants.map_with_index do |variant, index|
+        format_for_variant(variant, index)
       end
 
       Media.new(

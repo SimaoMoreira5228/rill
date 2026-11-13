@@ -86,6 +86,37 @@ describe Rill::Media do
     end
   end
 
+  it "rejects invalid numeric metadata" do
+    invalid_duration = Rill::Format.new(
+      format_id: "video",
+      url: URI.parse("https://example.com/video.mp4"),
+      duration_seconds: Float64::NAN,
+    )
+    expect_raises(Rill::InvalidExtractionError, /duration/) do
+      media([invalid_duration]).validate!
+    end
+
+    negative_size = Rill::Format.new(
+      format_id: "video",
+      url: URI.parse("https://example.com/video.mp4"),
+      filesize: -1_i64,
+    )
+    expect_raises(Rill::InvalidExtractionError, /filesize/) do
+      media([negative_size]).validate!
+    end
+
+    item = Rill::Media.new(
+      title: "Example",
+      webpage_url: URI.parse("https://example.com/watch"),
+      extractor: "example",
+      duration_seconds: Float64::INFINITY,
+      formats: [format],
+    )
+    expect_raises(Rill::InvalidExtractionError, /media duration/) do
+      item.validate!
+    end
+  end
+
   it "serializes to JSON" do
     parsed = JSON.parse(media.to_pretty_json)
 

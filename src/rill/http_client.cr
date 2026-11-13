@@ -16,8 +16,10 @@ module Rill
     }
 
     SENSITIVE_HEADERS = {
-      "Authorization", "Cookie", "Proxy-Authorization",
+      "authorization", "cookie", "proxy-authorization", "host",
     }
+
+    HEX = "0123456789ABCDEF"
 
     class Response
       getter status : HTTP::Status
@@ -208,6 +210,10 @@ module Rill
 
         destination.write(buffer[0, read])
       end
+
+      if content_length && identity_encoded?(response) && total < content_length
+        raise IncompleteResponseError.new(url, content_length, total)
+      end
     end
 
     private def read_error_body(response : HTTP::Client::Response) : String
@@ -242,7 +248,56 @@ module Rill
     end
 
     private def build_request(url : URI, headers : HTTP::Headers) : HTTP::Request
-      HTTP::Request.new("GET", url.request_target, headers)
+      HTTP::Request.new("GET", request_target(url), headers)
+    end
+
+    private def request_target(url : URI) : String
+      encode_target(url.request_target)
+    end
+
+    private def encode_target(value : String) : String
+      String.build do |io|
+        bytes = value.to_slice
+        index = 0
+
+        while index < bytes.size
+          byte = bytes[index]
+
+          if byte == 0x25_u8 && index + 2 < bytes.size &&
+             hex_digit?(bytes[index + 1]) && hex_digit?(bytes[index + 2])
+            io.write_byte(byte)
+            io.write_byte(bytes[index + 1])
+            io.write_byte(bytes[index + 2])
+            index += 3
+          elsif target_byte?(byte)
+            io.write_byte(byte)
+            index += 1
+          else
+            io << '%'
+            io.write_byte(HEX.to_unsafe[byte >> 4])
+            io.write_byte(HEX.to_unsafe[byte & 0x0f])
+            index += 1
+          end
+        end
+      end
+    end
+
+    private def hex_digit?(byte : UInt8) : Bool
+      (0x30_u8 <= byte <= 0x39_u8) ||
+        (0x41_u8 <= byte <= 0x46_u8) ||
+        (0x61_u8 <= byte <= 0x66_u8)
+    end
+
+    private def target_byte?(byte : UInt8) : Bool
+      (0x30_u8 <= byte <= 0x39_u8) ||
+        (0x41_u8 <= byte <= 0x5a_u8) ||
+        (0x61_u8 <= byte <= 0x7a_u8) ||
+        "-._~!$&'()*+,;=:@/?".to_slice.includes?(byte)
+    end
+
+    private def identity_encoded?(response : HTTP::Client::Response) : Bool
+      encoding = response.headers["Content-Encoding"]?
+      encoding.nil? || encoding.downcase == "identity"
     end
 
     private def build_client(url : URI) : HTTP::Client
@@ -253,6 +308,7 @@ module Rill
       )
       client.connect_timeout = @options.connect_timeout
       client.read_timeout = @options.read_timeout
+      client.dns_timeout = @options.connect_timeout
       client
     end
 
@@ -278,26 +334,30 @@ module Rill
     ) : Nil
       headers.delete("Cookie")
 
-      cookies = {} of String => String
-      @cookies.cookies_for(url).each do |cookie|
-        cookies[cookie.name] = cookie.value
-      end
-
+      explicit = {} of String => String
       if include_explicit
         @header_cookies.each do |name, value|
-          cookies[name] = value
+          explicit[name] = value
         end
         extra_cookies.each do |name, value|
-          cookies[name] = value
+          explicit[name] = value
         end
         @options.cookies.each do |name, value|
-          cookies[name] = value
+          explicit[name] = value
         end
       end
 
-      return if cookies.empty?
+      jar = @cookies.cookies_for(url).reject { |cookie| explicit.has_key?(cookie.name) }
+      jar.sort_by! { |cookie| -(cookie.path || "/").size }
 
-      headers["Cookie"] = cookies.map { |name, value| "#{name}=#{value}" }.join("; ")
+      values = jar.map(&.to_cookie_header)
+      explicit.each do |name, value|
+        values << "#{name}=#{value}"
+      end
+
+      return if values.empty?
+
+      headers["Cookie"] = values.join("; ")
     end
 
     private def parse_cookie_values(values : Array(String)?) : Hash(String, String)
@@ -333,7 +393,7 @@ module Rill
 
       copy = HTTP::Headers.new
       headers.each do |name, values|
-        next if SENSITIVE_HEADERS.includes?(name)
+        next if SENSITIVE_HEADERS.includes?(name.downcase)
 
         values.each do |value|
           copy.add(name, value)
@@ -362,7 +422,7 @@ module Rill
     end
 
     private def retry_wait(attempt : Int32) : Time::Span
-      @options.retry_delay * (1 << (attempt - 1))
+      @options.retry_wait(attempt)
     end
 
     private def parse_url(url : String | URI) : URI
@@ -386,6 +446,10 @@ module Rill
     private def validate_options! : Nil
       if @options.retries < 0
         raise ArgumentError.new("retries must not be negative")
+      end
+
+      if @options.retries > 10
+        raise ArgumentError.new("retries must not exceed 10")
       end
 
       if @options.max_redirects < 0

@@ -95,8 +95,13 @@ module Rill::Extractors
       end
     end
 
-    private def parse_payload(body : String, url : URI) : JSON::Any
-      JSON.parse(body)
+    private def parse_payload(body : String, url : URI) : Hash(String, JSON::Any)
+      payload = JSON.parse(body).as_h?
+      unless payload
+        raise MediaUnavailableError.new(url.to_s, "item metadata is not a JSON object")
+      end
+
+      payload
     rescue JSON::ParseException
       raise MediaUnavailableError.new(url.to_s, "item metadata is not valid JSON")
     end
@@ -108,22 +113,25 @@ module Rill::Extractors
       formats = [] of Format
 
       files.each do |file|
-        file_name = file["name"]?.try(&.as_s?)
+        file_hash = file.as_h?
+        next unless file_hash
+
+        file_name = file_hash["name"]?.try(&.as_s?)
         next unless file_name
 
         extension = File.extname(file_name).lchop('.').downcase
         next unless MEDIA_EXTENSIONS.includes?(extension)
 
-        label = scalar_string(file["format"]?)
+        label = scalar_string(file_hash["format"]?)
         format = Format.new(
           format_id: file_name,
           url: download_url(identifier, file_name),
           kind: kind_for(extension),
           container: extension,
-          width: int_value(file["width"]?).try(&.to_i32),
-          height: int_value(file["height"]?).try(&.to_i32),
-          filesize: int_value(file["size"]?),
-          duration_seconds: parse_seconds(scalar_string(file["length"]?)),
+          width: dimension(file_hash["width"]?),
+          height: dimension(file_hash["height"]?),
+          filesize: int_value(file_hash["size"]?),
+          duration_seconds: parse_seconds(scalar_string(file_hash["length"]?)),
           note: label,
         )
         formats << format
@@ -181,11 +189,21 @@ module Rill::Extractors
     private def int_value(value : JSON::Any?) : Int64?
       return nil unless value
 
-      if string = value.as_s?
-        string.to_i64?
-      else
-        value.as_i64?
-      end
+      parsed = if string = value.as_s?
+                 string.to_i64?
+               else
+                 value.as_i64?
+               end
+      return nil unless parsed && parsed >= 0
+
+      parsed
+    end
+
+    private def dimension(value : JSON::Any?) : Int32?
+      parsed = int_value(value)
+      return nil unless parsed && 0 < parsed <= 100_000
+
+      parsed.to_i32
     end
 
     private def parse_seconds(value : String?) : Float64?
@@ -194,17 +212,21 @@ module Rill::Extractors
       text = value.strip
       return nil if text.empty?
 
-      if text.includes?(':')
-        seconds = 0.0
-        text.split(':').each do |part|
-          number = part.to_f?
-          return nil unless number
-          seconds = seconds * 60 + number
-        end
-        seconds
-      else
-        text.to_f?
-      end
+      seconds = if text.includes?(':')
+                  total = 0.0
+                  text.split(':').each do |part|
+                    number = part.to_f?
+                    return nil unless number
+                    total = total * 60 + number
+                  end
+                  total
+                else
+                  text.to_f?
+                end
+
+      return nil unless seconds && seconds.finite? && seconds >= 0
+
+      seconds
     end
   end
 end

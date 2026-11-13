@@ -52,6 +52,7 @@ module Rill::OutputFileName
     value = value.sub(LEADING_DOTS_OR_SPACES, "")
     value = value.sub(TRAILING_DOTS_OR_SPACES, "")
     value = truncate(value, limit)
+    value = value.sub(TRAILING_DOTS_OR_SPACES, "")
     value.empty? ? "download" : value
   end
 

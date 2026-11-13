@@ -60,6 +60,16 @@ module Rill
     end
   end
 
+  class IncompleteResponseError < Error
+    getter url : URI
+    getter expected_bytes : Int64
+    getter actual_bytes : Int64
+
+    def initialize(@url : URI, @expected_bytes : Int64, @actual_bytes : Int64)
+      super("response from #{@url} ended after #{@actual_bytes} of #{@expected_bytes} bytes")
+    end
+  end
+
   class NetworkError < Error
     getter url : URI
 

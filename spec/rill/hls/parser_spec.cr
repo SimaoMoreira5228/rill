@@ -117,5 +117,13 @@ describe Rill::Hls::Parser do
     expect_raises(Rill::ManifestError, /dangling stream/) do
       parse_playlist("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH=1")
     end
+
+    expect_raises(Rill::ManifestError, /segment duration/) do
+      parse_playlist("#EXTM3U\n#EXTINF:nan,\nseg.ts\n#EXT-X-ENDLIST")
+    end
+
+    expect_raises(Rill::ManifestError, /invalid HLS attribute/) do
+      parse_playlist("#EXTM3U\n#EXT-X-STREAM-INF:BANDWIDTH\nseg.m3u8")
+    end
   end
 end

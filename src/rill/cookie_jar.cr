@@ -19,15 +19,31 @@ module Rill
       values = headers.get?("Set-Cookie")
       return if values.nil? || values.empty?
 
+      host = url.host.try(&.downcase)
+      return unless host
+
       values.each do |value|
-        cookie = HTTP::Cookie::Parser.parse_set_cookie(value)
+        cookie = parse_cookie(value)
         next unless cookie
         next unless cookie.valid?
 
-        host_only = cookie.domain.nil?
-        cookie.domain = normalized_domain(cookie.domain) || url.host
+        domain = normalized_domain(cookie.domain)
+        if domain
+          next unless settable_domain?(host, domain)
+
+          cookie.domain = domain
+          host_only = false
+        else
+          cookie.domain = host
+          host_only = true
+        end
+
         cookie.path ||= default_path(url.path)
-        next if cookie.expired?
+
+        if cookie.expired?
+          delete_matching(cookie)
+          next
+        end
 
         store(StoredCookie.new(cookie, host_only))
       end
@@ -39,16 +55,24 @@ module Rill
       @cookies.select { |stored| matches?(stored, url) }.map(&.cookie)
     end
 
+    private def parse_cookie(value : String) : HTTP::Cookie?
+      HTTP::Cookie::Parser.parse_set_cookie(value)
+    rescue
+      nil
+    end
+
     private def store(stored : StoredCookie) : Nil
       cookie = stored.cookie
+      delete_matching(cookie)
+      @cookies << stored
+    end
 
+    private def delete_matching(cookie : HTTP::Cookie) : Nil
       @cookies.reject! do |existing|
         existing.cookie.name == cookie.name &&
           existing.cookie.domain.try(&.downcase) == cookie.domain.try(&.downcase) &&
           existing.cookie.path == cookie.path
       end
-
-      @cookies << stored
     end
 
     private def matches?(stored : StoredCookie, url : URI) : Bool
@@ -70,6 +94,14 @@ module Rill
       return host == normalized if host_only
 
       host == normalized || host.ends_with?(".#{normalized}")
+    end
+
+    private def settable_domain?(host : String, domain : String) : Bool
+      return true if host == domain
+      return false unless host.ends_with?(".#{domain}")
+      return false unless domain.includes?('.')
+
+      true
     end
 
     private def normalized_domain(domain : String?) : String?

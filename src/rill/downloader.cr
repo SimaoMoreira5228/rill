@@ -1,4 +1,5 @@
 require "file"
+require "json"
 require "path"
 require "uri"
 
@@ -14,6 +15,7 @@ require "./request_options"
 module Rill
   class Downloader
     PART_SUFFIX       = ".part"
+    META_SUFFIX       = ".meta"
     CONTENT_RANGE     = /\Abytes (\d+)-(\d+)\/(\d+|\*)\z/
     PROGRESS_INTERVAL = 100.milliseconds
 
@@ -89,16 +91,18 @@ module Rill
       format = source.is_a?(Format) ? source : nil
       target_path = Path.new(target.to_s)
       part_path = Path.new("#{target_path}#{PART_SUFFIX}")
+      ensure_not_symlink(part_path)
+      ensure_not_symlink(meta_path(part_path))
 
       if File.exists?(target_path) && !@overwrite
         raise FileExistsError.new(target_path.to_s)
       end
 
       if format.try(&.protocol.hls?)
-        File.delete(part_path) if File.exists?(part_path)
+        remove_part(part_path)
         transfer_hls(url, part_path, cancellation, on_progress)
       else
-        File.delete(part_path) if !@resume && File.exists?(part_path)
+        remove_part(part_path) unless @resume
         transfer(url, part_path, cancellation, on_progress)
       end
 
@@ -115,11 +119,13 @@ module Rill
       on_progress : Proc(DownloadProgress, Nil)?,
     ) : Nil
       attempt = 0
+      validate_meta_url(part_path, url)
 
       loop do
         attempt += 1
         offset = current_offset(part_path)
-        request_headers = build_request_headers(offset)
+        meta = read_meta(part_path)
+        request_headers = build_request_headers(offset, meta)
         expected_total = nil
 
         begin
@@ -133,6 +139,7 @@ module Rill
               expected_total = expected_total_for(status, headers)
               writer.base_offset = resumed_offset
               writer.total = expected_total
+              write_meta(part_path, url.to_s, headers, expected_total)
             end
 
             writer.emit(force: true)
@@ -140,15 +147,15 @@ module Rill
 
           verify_size(part_path, expected_total)
           return
-        rescue ex : NetworkError | IncompleteDownloadError
+        rescue ex : NetworkError | IncompleteResponseError | IncompleteDownloadError
           raise ex if attempt > @options.retries
-          sleep(retry_wait(attempt))
+          sleep(@options.retry_wait(attempt))
         rescue ex : ResumeError
-          File.delete(part_path) if File.exists?(part_path)
+          remove_part(part_path)
           raise ex if attempt > @options.retries
         rescue ex : HTTPError
           if offset > 0 && ex.status.code == 416
-            File.delete(part_path) if File.exists?(part_path)
+            remove_part(part_path)
             raise ex if attempt > @options.retries
             next
           end
@@ -156,7 +163,7 @@ module Rill
           raise ex unless retryable_status?(ex.status)
           raise ex if attempt > @options.retries
 
-          sleep(retry_wait(attempt))
+          sleep(@options.retry_wait(attempt))
         end
       end
     end
@@ -197,7 +204,7 @@ module Rill
         writer.emit(force: true)
       end
     rescue ex : Rill::Error | IO::Error
-      File.delete(part_path) if File.exists?(part_path)
+      remove_part(part_path)
       raise ex
     end
 
@@ -226,12 +233,14 @@ module Rill
       File.size(part_path)
     end
 
-    private def build_request_headers(offset : Int64) : HTTP::Headers
+    private def build_request_headers(offset : Int64, meta : Hash(String, String)) : HTTP::Headers
       headers = HTTP::Headers.new
       headers["Accept-Encoding"] = "identity"
 
       if offset > 0
         headers["Range"] = "bytes=#{offset}-"
+        validator = meta["etag"]? || meta["last_modified"]?
+        headers["If-Range"] = validator if validator
       end
 
       headers
@@ -244,8 +253,6 @@ module Rill
       part_path : Path,
       file : File,
     ) : Int64
-      return 0_i64 if requested_offset.zero?
-
       if status.code == 206
         range = parse_content_range(headers["Content-Range"]?)
         unless range && range[:start] == requested_offset
@@ -312,17 +319,97 @@ module Rill
       begin
         File.rename(part_path, target_path)
       rescue ex : File::Error
-        unless File.exists?(target_path)
-          raise DownloadWriteError.new(target_path.to_s, ex)
+        unless @overwrite && File.exists?(target_path)
+          raise FileExistsError.new(target_path.to_s)
         end
 
         File.delete(target_path)
         File.rename(part_path, target_path)
       end
+
+      remove_meta(part_path)
     end
 
-    private def retry_wait(attempt : Int32) : Time::Span
-      @options.retry_delay * (1 << (attempt - 1))
+    private def meta_path(part_path : Path) : Path
+      Path.new("#{part_path}#{META_SUFFIX}")
+    end
+
+    private def read_meta(part_path : Path) : Hash(String, String)
+      path = meta_path(part_path)
+      return {} of String => String unless File.exists?(path)
+
+      object = JSON.parse(File.read(path)).as_h?
+      return {} of String => String unless object
+
+      result = {} of String => String
+      object.each do |key, value|
+        text = value.as_s?
+        result[key] = text if text
+      end
+      result
+    rescue File::Error | JSON::ParseException
+      {} of String => String
+    end
+
+    private def write_meta(
+      part_path : Path,
+      url : String,
+      headers : HTTP::Headers,
+      total : Int64?,
+    ) : Nil
+      values = read_meta(part_path)
+      values["url"] = url
+      if etag = headers["ETag"]?
+        values["etag"] = etag
+      end
+      if modified = headers["Last-Modified"]?
+        values["last_modified"] = modified
+      end
+      if total
+        values["total"] = total.to_s
+      end
+
+      return unless values.size > 1
+
+      JSON.build do |json|
+        json.object do
+          values.each do |key, value|
+            json.field key, value
+          end
+        end
+      end.tap do |content|
+        File.write(meta_path(part_path), content)
+      end
+    rescue File::Error
+      nil
+    end
+
+    private def validate_meta_url(part_path : Path, url : String | URI) : Nil
+      return unless @resume
+      return unless File.exists?(part_path)
+
+      meta = read_meta(part_path)
+      stored = meta["url"]?
+      return unless stored
+      return if stored == url.to_s
+
+      remove_part(part_path)
+    end
+
+    private def remove_part(part_path : Path) : Nil
+      File.delete(part_path) if File.exists?(part_path)
+      remove_meta(part_path)
+    end
+
+    private def remove_meta(part_path : Path) : Nil
+      path = meta_path(part_path)
+      File.delete(path) if File.exists?(path)
+    end
+
+    private def ensure_not_symlink(path : Path) : Nil
+      return unless File.symlink?(path)
+
+      raise DownloadError.new("refusing to use symlink #{path}")
     end
   end
 end

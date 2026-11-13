@@ -75,9 +75,14 @@ module Rill::Extractors
       end
     end
 
-    private def api_payload(client : HTTPClient, api_url : URI, url : URI) : JSON::Any
+    private def api_payload(client : HTTPClient, api_url : URI, url : URI) : Hash(String, JSON::Any)
       response = client.get(api_url)
-      JSON.parse(response.body)
+      payload = JSON.parse(response.body).as_h?
+      unless payload
+        raise MediaUnavailableError.new(url.to_s, "video metadata is not a JSON object")
+      end
+
+      payload
     rescue ex : HTTPError
       case ex.status.code
       when 401, 403, 404
@@ -89,7 +94,7 @@ module Rill::Extractors
       raise MediaUnavailableError.new(url.to_s, "video metadata is not valid JSON")
     end
 
-    private def formats_from(payload : JSON::Any) : Array(Format)
+    private def formats_from(payload : Hash(String, JSON::Any)) : Array(Format)
       duration = number(payload["duration"]?)
       language = language_for(payload)
       formats = [] of Format
@@ -97,13 +102,17 @@ module Rill::Extractors
 
       files = payload["files"]?.try(&.as_a?) || [] of JSON::Any
       files.each_with_index do |file, index|
-        file_url = parse_uri(scalar_string(file["fileUrl"]?))
+        file_hash = file.as_h?
+        next unless file_hash
+
+        file_url = parse_uri(scalar_string(file_hash["fileUrl"]?))
         next unless file_url
 
-        resolution = file["resolution"]?
-        height = resolution.try(&.["id"]?).try(&.as_i?)
+        resolution = file_hash["resolution"]?.try(&.as_h?)
+        height = resolution.try(&.["id"]?).try(&.as_i64?)
+        height = nil if height && (height <= 0 || height > 100_000)
         label = resolution.try(&.["label"]?).try(&.as_s?)
-        audio_only = height.nil? || height == 0
+        audio_only = height.nil?
 
         format_id = audio_only ? "audio" : "#{height}p"
         if seen.includes?(format_id)
@@ -111,15 +120,15 @@ module Rill::Extractors
         end
         seen << format_id
 
-        size = number(file["size"]?).try(&.to_i64)
+        size = integer(file_hash["size"]?)
         formats << Format.new(
           format_id: format_id,
           url: file_url,
           kind: audio_only ? FormatKind::Audio : FormatKind::Combined,
           container: container_for(file_url),
           bitrate: bitrate(size, duration),
-          height: audio_only ? nil : height,
-          fps: positive_float(file["fps"]?),
+          height: audio_only ? nil : height.try(&.to_i32),
+          fps: positive_float(file_hash["fps"]?),
           filesize: size,
           language: language,
           note: label,
@@ -134,14 +143,17 @@ module Rill::Extractors
     end
 
     private def append_hls_formats(
-      payload : JSON::Any,
+      payload : Hash(String, JSON::Any),
       formats : Array(Format),
       language : String?,
     ) : Nil
       playlists = payload["streamingPlaylists"]?.try(&.as_a?) || [] of JSON::Any
 
       playlists.each_with_index do |playlist, index|
-        playlist_url = parse_uri(scalar_string(playlist["playlistUrl"]?))
+        playlist_hash = playlist.as_h?
+        next unless playlist_hash
+
+        playlist_url = parse_uri(scalar_string(playlist_hash["playlistUrl"]?))
         next unless playlist_url
 
         formats << Format.new(
@@ -155,14 +167,14 @@ module Rill::Extractors
       end
     end
 
-    private def uploader(payload : JSON::Any) : String?
-      account = payload["account"]?
+    private def uploader(payload : Hash(String, JSON::Any)) : String?
+      account = payload["account"]?.try(&.as_h?)
       return nil unless account
 
       scalar_string(account["displayName"]?) || scalar_string(account["name"]?)
     end
 
-    private def thumbnail_url(url : URI, payload : JSON::Any) : URI?
+    private def thumbnail_url(url : URI, payload : Hash(String, JSON::Any)) : URI?
       path = scalar_string(payload["thumbnailPath"]?) || scalar_string(payload["previewPath"]?)
       return nil unless path
       return nil unless path.starts_with?('/')
@@ -172,7 +184,7 @@ module Rill::Extractors
       parse_uri("#{url.scheme}://#{host}#{path}")
     end
 
-    private def language_for(payload : JSON::Any) : String?
+    private def language_for(payload : Hash(String, JSON::Any)) : String?
       value = payload["language"]?
       return nil unless value
 
@@ -183,7 +195,7 @@ module Rill::Extractors
       end
     end
 
-    private def date_value(payload : JSON::Any) : String?
+    private def date_value(payload : Hash(String, JSON::Any)) : String?
       value = scalar_string(payload["publishedAt"]?)
       return nil unless value
       return nil if value.size < 10
@@ -205,13 +217,24 @@ module Rill::Extractors
     private def number(value : JSON::Any?) : Float64?
       return nil unless value
 
-      if integer = value.as_i64?
-        integer.to_f
-      elsif float = value.as_f?
-        float
-      else
-        nil
-      end
+      parsed = if integer = value.as_i64?
+                 integer.to_f
+               elsif float = value.as_f?
+                 float
+               else
+                 nil
+               end
+
+      return nil unless parsed && parsed.finite?
+
+      parsed
+    end
+
+    private def integer(value : JSON::Any?) : Int64?
+      parsed = number(value)
+      return nil unless parsed && parsed >= 0 && parsed <= Int64::MAX.to_f
+
+      parsed.to_i64
     end
 
     private def positive_float(value : JSON::Any?) : Float64?

@@ -92,6 +92,9 @@ module Rill::CLI
   rescue ex : Rill::Error
     STDERR.puts ex.message
     1
+  rescue ex : ArgumentError
+    STDERR.puts ex.message
+    1
   end
 
   private def self.add_request_options(parser : OptionParser, options : RequestOptions) : Nil
@@ -111,6 +114,10 @@ module Rill::CLI
       options.read_timeout = seconds.seconds
     end
     parser.on("-u AGENT", "Set the request user agent") do |value|
+      if value.empty?
+        raise OptionParser::InvalidOption.new(value)
+      end
+
       options.user_agent = value
     end
   end
@@ -251,6 +258,10 @@ module Rill::CLI
     clear_progress_line
     STDERR.puts ex.message
     1
+  rescue ex : ArgumentError
+    clear_progress_line
+    STDERR.puts ex.message
+    1
   end
 
   private def self.download_playlist(
@@ -295,6 +306,9 @@ module Rill::CLI
       rescue ex : CancelledError
         raise ex
       rescue ex : Rill::Error
+        failures += 1
+        STDERR.puts "  failed: #{ex.message}"
+      rescue ex : ArgumentError
         failures += 1
         STDERR.puts "  failed: #{ex.message}"
       end
@@ -351,7 +365,12 @@ module Rill::CLI
     if separator.empty? || name.strip.empty?
       raise OptionParser::InvalidOption.new(value)
     end
-    options.headers.add(name.strip, header_value.strip)
+
+    begin
+      options.headers.add(name.strip, header_value.strip)
+    rescue ArgumentError
+      raise OptionParser::InvalidOption.new(value)
+    end
   end
 
   private def self.add_cookie(options : RequestOptions, value : String) : Nil
@@ -462,6 +481,7 @@ module Rill::CLI
 
   private def self.human_size(bytes : Int64?) : String?
     return nil unless bytes
+    return nil if bytes < 0
 
     return "#{bytes} B" if bytes < 1024
 
@@ -477,6 +497,7 @@ module Rill::CLI
 
   private def self.human_duration(seconds : Float64?) : String?
     return nil unless seconds
+    return nil unless seconds.finite? && seconds >= 0
 
     total = seconds.to_i
     hours = total // 3600

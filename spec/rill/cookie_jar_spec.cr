@@ -57,6 +57,38 @@ describe Rill::CookieJar do
     jar.cookies_for(URI.parse("http://example.com/")).should be_empty
   end
 
+  it "rejects Domain attributes that do not cover the response host" do
+    jar = Rill::CookieJar.new
+
+    jar.add(
+      cookie_headers("steal=yes; Domain=victim.com; Path=/"),
+      URI.parse("https://attacker.com/"),
+    )
+    jar.add(
+      cookie_headers("suffix=yes; Domain=com; Path=/"),
+      URI.parse("https://attacker.com/"),
+    )
+
+    jar.cookies_for(URI.parse("https://victim.com/")).should be_empty
+    jar.cookies_for(URI.parse("https://example.com/")).should be_empty
+  end
+
+  it "deletes a stored cookie when an expired one arrives" do
+    jar = Rill::CookieJar.new
+    jar.add(cookie_headers("session=abc; Path=/"), URI.parse("https://example.com/login"))
+    jar.cookies_for(URI.parse("https://example.com/")).should_not be_empty
+
+    jar.add(cookie_headers("session=; Max-Age=0; Path=/"), URI.parse("https://example.com/logout"))
+    jar.cookies_for(URI.parse("https://example.com/")).should be_empty
+  end
+
+  it "ignores malformed Set-Cookie headers" do
+    jar = Rill::CookieJar.new
+    jar.add(cookie_headers("broken; Max-Age=not-a-number"), URI.parse("https://example.com/"))
+
+    jar.cookies_for(URI.parse("https://example.com/")).should be_empty
+  end
+
   it "ignores expired cookies" do
     jar = Rill::CookieJar.new
     jar.add(
@@ -85,6 +117,28 @@ describe Rill::HTTPClient do
 
       home_request = server.requests.find { |request| request.path == "/home" }.not_nil!
       home_request.headers["Cookie"].should eq("session=abc")
+    ensure
+      server.close
+    end
+  end
+
+  it "orders same-name cookies by path specificity" do
+    server = TestHTTPServer.new
+    server.on("/set") do |_, response|
+      response.headers.add("Set-Cookie", "id=root; Path=/")
+      response.headers.add("Set-Cookie", "id=admin; Path=/admin")
+      response.print("set")
+    end
+    server.on("/admin/page") { |_, response| response.print("ok") }
+    server.start
+
+    begin
+      client = Rill::HTTPClient.new
+      client.get("#{server.url}/set")
+      client.get("#{server.url}/admin/page")
+
+      request = server.requests.find { |item| item.path == "/admin/page" }.not_nil!
+      request.headers["Cookie"].should eq("id=admin; id=root")
     ensure
       server.close
     end

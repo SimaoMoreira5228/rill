@@ -43,6 +43,10 @@ module Rill::Hls::Parser
         index += 1
       end
 
+      if index >= text.size
+        raise ManifestError.new("invalid HLS attribute: #{text}")
+      end
+
       key = text[key_start, index - key_start].strip
       index += 1
 
@@ -52,6 +56,11 @@ module Rill::Hls::Parser
                 while index < text.size && text[index] != '"'
                   index += 1
                 end
+
+                if index >= text.size
+                  raise ManifestError.new("unterminated HLS attribute: #{text}")
+                end
+
                 result = text[value_start, index - value_start]
                 index += 1
                 result
@@ -183,7 +192,7 @@ module Rill::Hls::Parser
   private def parse_extinf(text : String) : Tuple(Float64, String?)
     duration_text, comma, title = text.partition(',')
     duration = duration_text.to_f?
-    unless duration
+    unless duration && duration.finite? && duration >= 0
       raise ManifestError.new("invalid HLS segment duration: #{duration_text}")
     end
 

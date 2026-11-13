@@ -29,7 +29,7 @@ describe Rill::Extractors::Hls do
       media.validate!
 
       media.title.should eq("master")
-      media.formats.size.should eq(2)
+      media.formats.size.should eq(1)
 
       low = media.formats[0]
       low.url.to_s.should eq("#{server.url}/low/index.m3u8")
@@ -38,10 +38,27 @@ describe Rill::Extractors::Hls do
       low.height.should eq(360)
       low.bitrate.should eq(800_000)
       low.note.should eq("avc1.4d401e,mp4a.40.2")
+    ensure
+      server.close
+    end
+  end
 
-      high = media.formats[1]
-      high.kind.should eq(Rill::FormatKind::Video)
-      high.height.should eq(720)
+  it "rejects masters with only separate-audio variants" do
+    server = TestHTTPServer.new
+    server.on("/master.m3u8") do |_, response|
+      response.print(<<-M3U8)
+        #EXTM3U
+        #EXT-X-STREAM-INF:BANDWIDTH=2400000,RESOLUTION=1280x720,AUDIO="aud"
+        high/index.m3u8
+      M3U8
+    end
+    server.start
+
+    begin
+      extractor = Rill::Extractors::Hls.new
+      expect_raises(Rill::UnsupportedManifestError, /separate audio/) do
+        extractor.extract(URI.parse("#{server.url}/master.m3u8"), Rill::HTTPClient.new)
+      end
     ensure
       server.close
     end

@@ -54,6 +54,20 @@ describe Rill::HTTPClient do
     end
   end
 
+  it "percent-encodes unsafe request target bytes" do
+    server = TestHTTPServer.new
+    server.on("/caf%C3%A9") { |_, response| response.print("ok") }
+    server.start
+
+    begin
+      response = http_client.get("#{server.url}/café")
+      response.body.should eq("ok")
+      server.requests.first.path.should eq("/caf%C3%A9")
+    ensure
+      server.close
+    end
+  end
+
   it "follows relative redirects" do
     server = TestHTTPServer.new
     server.on("/old") do |_, response|

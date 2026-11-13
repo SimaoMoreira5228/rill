@@ -72,13 +72,16 @@ module Rill::Extractors
       events = payload["events"]?.try(&.as_a?) || [] of JSON::Any
 
       events.each do |event|
-        entry_url = event_url(event)
+        event_hash = event.as_h?
+        next unless event_hash
+
+        entry_url = event_url(event_hash)
         next unless entry_url
 
         entries << PlaylistEntry.new(
           url: entry_url,
-          title: scalar_string(event["title"]?),
-          id: scalar_string(event["guid"]?),
+          title: scalar_string(event_hash["title"]?),
+          id: scalar_string(event_hash["guid"]?),
         )
       end
 
@@ -100,7 +103,7 @@ module Rill::Extractors
       api_url : URI,
       url : URI,
       subject : String,
-    ) : JSON::Any
+    ) : Hash(String, JSON::Any)
       response = client.get(api_url)
       parse_payload(response.body, url)
     rescue ex : HTTPError
@@ -127,8 +130,13 @@ module Rill::Extractors
       slug.empty? ? nil : slug
     end
 
-    private def parse_payload(body : String, url : URI) : JSON::Any
-      JSON.parse(body)
+    private def parse_payload(body : String, url : URI) : Hash(String, JSON::Any)
+      payload = JSON.parse(body).as_h?
+      unless payload
+        raise MediaUnavailableError.new(url.to_s, "metadata is not a JSON object")
+      end
+
+      payload
     rescue JSON::ParseException
       raise MediaUnavailableError.new(url.to_s, "metadata is not valid JSON")
     end
@@ -140,13 +148,16 @@ module Rill::Extractors
       formats = [] of Format
 
       recordings.each do |recording|
-        filename = scalar_string(recording["filename"]?)
+        recording_hash = recording.as_h?
+        next unless recording_hash
+
+        filename = scalar_string(recording_hash["filename"]?)
         next unless filename
 
-        recording_url = parse_uri(scalar_string(recording["recording_url"]?))
+        recording_url = parse_uri(scalar_string(recording_hash["recording_url"]?))
         next unless recording_url
 
-        mime_type = scalar_string(recording["mime_type"]?) || ""
+        mime_type = scalar_string(recording_hash["mime_type"]?) || ""
         media_type, codecs = parse_mime_type(mime_type)
         next if media_type.empty?
 
@@ -158,9 +169,9 @@ module Rill::Extractors
           container: container_for(media_type),
           video_codec: audio ? nil : codecs,
           audio_codec: audio ? audio_codec_for(media_type, codecs) : nil,
-          width: dimension(recording["width"]?),
-          height: dimension(recording["height"]?),
-          language: scalar_string(recording["language"]?),
+          width: dimension(recording_hash["width"]?),
+          height: dimension(recording_hash["height"]?),
+          language: scalar_string(recording_hash["language"]?),
           note: mime_type,
         )
       end
@@ -207,10 +218,10 @@ module Rill::Extractors
     end
 
     private def dimension(value : JSON::Any?) : Int32?
-      number = value.try(&.as_i?)
-      return nil unless number && number > 0
+      number = value.try(&.as_i64?)
+      return nil unless number && 0 < number <= 100_000
 
-      number
+      number.to_i32
     end
 
     private def persons(value : JSON::Any?) : String?
@@ -221,7 +232,7 @@ module Rill::Extractors
       names.empty? ? nil : names.join(", ")
     end
 
-    private def event_url(event : JSON::Any) : URI?
+    private def event_url(event : Hash(String, JSON::Any)) : URI?
       value = scalar_string(event["frontend_link"]?) || scalar_string(event["link"]?)
 
       if value.nil?
@@ -234,7 +245,7 @@ module Rill::Extractors
       parse_uri(value)
     end
 
-    private def thumbnail_url(payload : JSON::Any) : URI?
+    private def thumbnail_url(payload : Hash(String, JSON::Any)) : URI?
       value = scalar_string(payload["thumb_url"]?) || scalar_string(payload["poster_url"]?)
       value ? parse_uri(value) : nil
     end
@@ -251,7 +262,7 @@ module Rill::Extractors
       nil
     end
 
-    private def date_value(payload : JSON::Any) : String?
+    private def date_value(payload : Hash(String, JSON::Any)) : String?
       value = scalar_string(payload["date"]?)
       return nil unless value
       return nil if value.size < 10
@@ -260,7 +271,10 @@ module Rill::Extractors
     end
 
     private def parse_seconds(value : JSON::Any?) : Float64?
-      scalar_string(value).try(&.to_f?)
+      seconds = scalar_string(value).try(&.to_f?)
+      return nil unless seconds && seconds.finite? && seconds >= 0
+
+      seconds
     end
 
     private def scalar_string(value : JSON::Any?) : String?

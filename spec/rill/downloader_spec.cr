@@ -58,6 +58,7 @@ describe Rill::Downloader do
         result.should eq(target)
         File.read(target).should eq("hello world")
         File.exists?(Path.new("#{target}.part")).should be_false
+        File.exists?(Path.new("#{target}.part.meta")).should be_false
       end
     ensure
       server.close
@@ -166,10 +167,12 @@ describe Rill::Downloader do
   it "resumes from an existing part file" do
     body = "0123456789"
     ranges = [] of String?
+    server_requests = [] of HTTP::Request
     server = TestHTTPServer.new
     server.on("/file") do |request, response|
       range = request.headers["Range"]?
       ranges << range
+      server_requests << request
 
       if range && (match = /bytes=(\d+)-/.match(range))
         serve_range(response, body, match[1].to_i64)
@@ -184,11 +187,46 @@ describe Rill::Downloader do
       with_temp_dir do |directory|
         target = directory / "file.bin"
         File.write(Path.new("#{target}.part"), "0123")
+        File.write(
+          Path.new("#{target}.part.meta"),
+          %({"url":"#{server.url}/file","etag":"v1"}),
+        )
 
         downloader.download("#{server.url}/file", target)
 
         File.read(target).should eq(body)
         ranges.first.should eq("bytes=4-")
+        server_requests.first.headers["If-Range"].should eq("v1")
+      end
+    ensure
+      server.close
+    end
+  end
+
+  it "restarts when the part file belongs to another URL" do
+    body = "0123456789"
+    ranges = [] of String?
+    server = TestHTTPServer.new
+    server.on("/file") do |request, response|
+      ranges << request.headers["Range"]?
+      response.content_length = body.bytesize
+      response.print(body)
+    end
+    server.start
+
+    begin
+      with_temp_dir do |directory|
+        target = directory / "file.bin"
+        File.write(Path.new("#{target}.part"), "OLD")
+        File.write(
+          Path.new("#{target}.part.meta"),
+          %({"url":"https://example.com/other"}),
+        )
+
+        downloader.download("#{server.url}/file", target)
+
+        File.read(target).should eq(body)
+        ranges.first.should be_nil
       end
     ensure
       server.close
@@ -484,6 +522,81 @@ describe Rill::Downloader do
         expect_raises(Rill::UnsupportedManifestError, /byte ranges/) do
           downloader.download(hls_format("#{server.url}/hls/media.m3u8"), target)
         end
+      end
+    ensure
+      server.close
+    end
+  end
+
+  it "rejects a malformed partial response" do
+    server = TestHTTPServer.new
+    server.on("/file") do |_, response|
+      response.status = :partial_content
+      response.headers["Content-Range"] = "bytes 5-9/10"
+      response.content_length = 5
+      response.print("01234")
+    end
+    server.start
+
+    begin
+      with_temp_dir do |directory|
+        target = directory / "file.bin"
+
+        expect_raises(Rill::ResumeError, /Content-Range/) do
+          downloader.download("#{server.url}/file", target)
+        end
+        File.exists?(target).should be_false
+      end
+    ensure
+      server.close
+    end
+  end
+
+  it "fails instead of silently truncating an HLS segment" do
+    server = TestHTTPServer.new
+    server.on("/hls/media.m3u8") do |_, response|
+      response.print("#EXTM3U\n#EXTINF:4,\nseg.ts\n#EXT-X-ENDLIST\n")
+    end
+    server.on("/hls/seg.ts") do |_, response|
+      response.content_length = 10
+      response.print("0123")
+      response.close
+    end
+    server.start
+
+    begin
+      with_temp_dir do |directory|
+        target = directory / "media.ts"
+
+        expect_raises(Rill::Error) do
+          downloader.download(hls_format("#{server.url}/hls/media.m3u8"), target)
+        end
+        File.exists?(target).should be_false
+      end
+    ensure
+      server.close
+    end
+  end
+
+  it "refuses a symlinked part file" do
+    server = TestHTTPServer.new
+    server.on("/file") do |_, response|
+      response.content_length = 4
+      response.print("body")
+    end
+    server.start
+
+    begin
+      with_temp_dir do |directory|
+        target = directory / "file.bin"
+        victim = directory / "victim.txt"
+        File.write(victim, "keep")
+        File.symlink(victim, Path.new("#{target}.part"))
+
+        expect_raises(Rill::DownloadError, /symlink/) do
+          downloader.download("#{server.url}/file", target)
+        end
+        File.read(victim).should eq("keep")
       end
     ensure
       server.close
