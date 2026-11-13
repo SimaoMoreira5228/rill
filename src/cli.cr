@@ -13,6 +13,8 @@ module Rill::CLI
       extract URL    Print media metadata and available formats
       formats URL    Print available formats only
       download URL   Download a media format to a file
+      merge VIDEO AUDIO -o OUTPUT
+                     Remux separate video and audio files
 
     Options:
       -j, --json               Print JSON
@@ -39,6 +41,8 @@ module Rill::CLI
       run_extraction(command, args)
     when "download"
       run_download(args)
+    when "merge"
+      run_merge(args)
     else
       STDERR.puts "unknown command: #{command}"
       STDERR.puts USAGE
@@ -84,6 +88,58 @@ module Rill::CLI
       end
     end
 
+    0
+  rescue ex : OptionParser::Exception
+    STDERR.puts ex.message
+    STDERR.puts USAGE
+    2
+  rescue ex : Rill::Error
+    STDERR.puts ex.message
+    1
+  rescue ex : ArgumentError
+    STDERR.puts ex.message
+    1
+  end
+
+  private def self.run_merge(args : Array(String)) : Int32
+    output : String? = nil
+    force = false
+    backend = MediaMuxer.backend_from_environment
+    help = false
+
+    parser = OptionParser.new
+    parser.banner = USAGE
+    parser.on("-o PATH", "--output PATH", "Write to this file") do |value|
+      output = value
+    end
+    parser.on("--force", "Overwrite an existing file") { force = true }
+    parser.on("--media-backend MODE", "auto, helper, system, or off") do |value|
+      backend = MediaMuxer.parse_backend(value) || raise OptionParser::InvalidOption.new(value)
+    end
+    parser.on("-h", "--help", "Show this help") { help = true }
+
+    remaining = args.dup
+    parser.parse(remaining)
+
+    if help
+      puts parser
+      return 0
+    end
+
+    if remaining.size != 2
+      STDERR.puts "expected a video and an audio file"
+      STDERR.puts parser
+      return 2
+    end
+
+    unless output
+      STDERR.puts "missing --output"
+      return 2
+    end
+
+    muxer = MediaMuxer.new(backend)
+    path = muxer.merge(remaining[0], remaining[1], output.not_nil!, force)
+    puts path
     0
   rescue ex : OptionParser::Exception
     STDERR.puts ex.message

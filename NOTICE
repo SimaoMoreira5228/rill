@@ -3,3 +3,7 @@ Copyright 2026 rill contributors
 
 This product includes software developed by third parties, as noted in the
 relevant source files and repository history.
+
+The optional rill-media helper links against FFmpeg (LGPL-2.1-or-later).
+Distributions of that helper must include FFmpeg's license notices and
+comply with its relinking requirements.

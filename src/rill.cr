@@ -22,6 +22,7 @@ require "./rill/download_progress"
 require "./rill/output_file_name"
 require "./rill/downloader"
 require "./rill/client"
+require "./rill/media_muxer"
 
 module Rill
   def self.extract(url : String | URI, options : RequestOptions = RequestOptions.new) : Media | Playlist

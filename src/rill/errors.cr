@@ -92,6 +92,12 @@ module Rill
     end
   end
 
+  class MediaBackendUnavailableError < Error
+  end
+
+  class MediaMuxError < Error
+  end
+
   class ManifestError < Error
   end
 
