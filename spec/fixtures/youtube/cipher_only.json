@@ -1,0 +1,21 @@
+{
+  "playabilityStatus": {"status": "OK"},
+  "videoDetails": {
+    "videoId": "cipheronly",
+    "title": "Ciphered video",
+    "author": "Example",
+    "lengthSeconds": "10",
+    "isLiveContent": false
+  },
+  "streamingData": {
+    "adaptiveFormats": [
+      {
+        "itag": 137,
+        "mimeType": "video/mp4; codecs=\"avc1.640028\"",
+        "width": 1920,
+        "height": 1080,
+        "signatureCipher": "s=abc&url=https%3A%2F%2Fexample.com%2Fvideo"
+      }
+    ]
+  }
+}

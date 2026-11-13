@@ -1,0 +1,11 @@
+{
+  "playabilityStatus": {"status": "OK"},
+  "videoDetails": {
+    "videoId": "live12345",
+    "title": "Live stream",
+    "author": "Example",
+    "lengthSeconds": "0",
+    "isLiveContent": true
+  },
+  "streamingData": {}
+}

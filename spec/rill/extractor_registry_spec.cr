@@ -67,6 +67,8 @@ describe Rill::ExtractorRegistry do
       .should eq(Rill::Extractors::MediaCccDe)
     registry.extractor_for("https://example.com/w/abc123")
       .should eq(Rill::Extractors::PeerTube)
+    registry.extractor_for("https://www.youtube.com/watch?v=dQw4w9WgXcQ")
+      .should eq(Rill::Extractors::YouTube)
     registry.extractor_for("https://example.com/clip.mp4")
       .should eq(Rill::Extractors::DirectMedia)
     registry.extractor_for("https://example.com/playlist.m3u8")

@@ -53,6 +53,16 @@ module Rill
       end
     end
 
+    def post(url : String | URI, body : String, headers : HTTP::Headers? = nil) : Response
+      request_headers = HTTP::Headers.new
+      copy_headers(headers, request_headers) if headers
+      request_headers["Content-Type"] ||= "application/json"
+
+      follow_redirects(url, request_headers) do |current_url, headers_for_request|
+        attempt_buffered(current_url, headers_for_request, "POST", body)
+      end
+    end
+
     def stream_to(
       url : String | URI,
       destination : IO,
@@ -114,14 +124,19 @@ module Rill
       end
     end
 
-    private def attempt_buffered(url : URI, headers : HTTP::Headers) : Response
+    private def attempt_buffered(
+      url : URI,
+      headers : HTTP::Headers,
+      method : String = "GET",
+      body : String? = nil,
+    ) : Response
       attempt = 0
 
       loop do
         attempt += 1
 
         begin
-          response = perform_buffered(url, headers)
+          response = perform_buffered(url, headers, method, body)
         rescue ex : NetworkError
           raise ex if attempt > @options.retries
           sleep(retry_wait(attempt))
@@ -134,13 +149,18 @@ module Rill
       end
     end
 
-    private def perform_buffered(url : URI, headers : HTTP::Headers) : Response
+    private def perform_buffered(
+      url : URI,
+      headers : HTTP::Headers,
+      method : String,
+      request_body : String?,
+    ) : Response
       body = IO::Memory.new
       status = HTTP::Status::OK
       response_headers = HTTP::Headers.new
 
       with_client(url) do |client|
-        client.exec(build_request(url, headers)) do |response|
+        client.exec(build_request(url, headers, method, request_body)) do |response|
           status = response.status
           response_headers = response.headers
 
@@ -247,8 +267,15 @@ module Rill
       end
     end
 
-    private def build_request(url : URI, headers : HTTP::Headers) : HTTP::Request
-      HTTP::Request.new("GET", request_target(url), headers)
+    private def build_request(
+      url : URI,
+      headers : HTTP::Headers,
+      method : String = "GET",
+      body : String? = nil,
+    ) : HTTP::Request
+      request = HTTP::Request.new(method, request_target(url), headers)
+      request.body = body if body
+      request
     end
 
     private def request_target(url : URI) : String
