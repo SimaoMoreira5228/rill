@@ -13,6 +13,7 @@ lib LibRillJob
     error_code : UInt8*
     status : Int32
     done : Int32
+    abandoned : Int32
     mutex : LibC::PthreadMutexT*
     cond : LibC::PthreadCondT*
   end
@@ -77,7 +78,10 @@ module Rill::CAPI::Job
     job.value.error_code = error_code
     job.value.done = 1
     LibC.pthread_cond_signal(job.value.cond)
+    abandoned = job.value.abandoned != 0
     LibC.pthread_mutex_unlock(job.value.mutex)
+
+    release(job) if abandoned
   end
 
   def wait(
@@ -94,25 +98,41 @@ module Rill::CAPI::Job
     end
 
     status = job.value.status
-    json = job.value.json
-    error_message = job.value.error_message
-    error_code = job.value.error_code
 
-    job.value.json = null_pointer
-    job.value.error_message = null_pointer
-    job.value.error_code = null_pointer
+    unless json_out.null?
+      json_out.value = job.value.json
+      job.value.json = null_pointer
+    end
+
+    unless error_out.null?
+      error_out.value = job.value.error_message
+      job.value.error_message = null_pointer
+    end
+
+    unless error_code_out.null?
+      error_code_out.value = job.value.error_code
+      job.value.error_code = null_pointer
+    end
+
     LibC.pthread_mutex_unlock(job.value.mutex)
-
-    json_out.value = json unless json_out.null?
-    error_out.value = error_message unless error_out.null?
-    error_code_out.value = error_code unless error_code_out.null?
-
     status
   end
 
   def free(job : JobPtr) : Nil
     return if job.null?
 
+    LibC.pthread_mutex_lock(job.value.mutex)
+    unless job.value.done != 0
+      job.value.abandoned = 1
+      LibC.pthread_mutex_unlock(job.value.mutex)
+      return
+    end
+    LibC.pthread_mutex_unlock(job.value.mutex)
+
+    release(job)
+  end
+
+  private def release(job : JobPtr) : Nil
     Memory.free(job.value.url)
     Memory.free(job.value.options_json)
     Memory.free(job.value.json)
@@ -135,6 +155,7 @@ module Rill::CAPI::Job
     job.value.error_code = null_pointer
     job.value.status = Status::OK
     job.value.done = 0
+    job.value.abandoned = 0
     job.value.mutex = Pointer(LibC::PthreadMutexT).null
     job.value.cond = Pointer(LibC::PthreadCondT).null
   end

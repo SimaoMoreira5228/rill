@@ -37,6 +37,16 @@ static void *worker(void *argument) {
   return NULL;
 }
 
+static void *shutdown_worker(void *argument) {
+  (void)argument;
+
+  for (int i = 0; i < 10; i++) {
+    assert(rill_shutdown() == RILL_OK);
+  }
+
+  return NULL;
+}
+
 int main(void) {
   assert(rill_abi_version() == RILL_ABI_VERSION);
 
@@ -102,12 +112,24 @@ int main(void) {
       "https://example.com/clip.mp4", NULL, NULL, &error, &code);
   assert(status == RILL_ERROR_INVALID_ARGUMENT);
 
+  rill_job *abandoned = rill_job_new("https://example.com/clip.mp4", NULL);
+  assert(abandoned != NULL);
+  rill_job_free(abandoned);
+
   pthread_t threads[THREADS];
   for (int i = 0; i < THREADS; i++) {
     assert(pthread_create(&threads[i], NULL, worker, NULL) == 0);
   }
   for (int i = 0; i < THREADS; i++) {
     assert(pthread_join(threads[i], NULL) == 0);
+  }
+
+  pthread_t stoppers[4];
+  for (int i = 0; i < 4; i++) {
+    assert(pthread_create(&stoppers[i], NULL, shutdown_worker, NULL) == 0);
+  }
+  for (int i = 0; i < 4; i++) {
+    assert(pthread_join(stoppers[i], NULL) == 0);
   }
 
   assert(rill_shutdown() == RILL_OK);

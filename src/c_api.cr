@@ -8,11 +8,12 @@ require "./rill/c_api/status"
 require "./rill/c_api/worker_pool"
 
 module Rill::CAPI
-  STATE_NEW          = 0
-  STATE_INITIALIZING = 1
-  STATE_READY        = 2
-  STATE_FAILED       = 3
-  STATE_SHUTDOWN     = 4
+  STATE_NEW           = 0
+  STATE_INITIALIZING  = 1
+  STATE_READY         = 2
+  STATE_FAILED        = 3
+  STATE_SHUTDOWN      = 4
+  STATE_SHUTTING_DOWN = 5
 
   @@state = Atomic(Int32).new(STATE_NEW)
 
@@ -36,15 +37,24 @@ module Rill::CAPI
   end
 
   def self.shutdown : Int32
-    case @@state.get
-    when STATE_NEW, STATE_SHUTDOWN
-      Status::OK
-    when STATE_READY
-      WorkerPool.shutdown
-      @@state.set(STATE_SHUTDOWN)
-      Status::OK
-    else
-      Status::INTERNAL_ERROR
+    loop do
+      case @@state.get
+      when STATE_NEW
+        @@state.set(STATE_SHUTDOWN)
+        return Status::OK
+      when STATE_SHUTDOWN
+        return Status::OK
+      when STATE_SHUTTING_DOWN
+        LibC.sched_yield
+      when STATE_READY
+        if @@state.compare_and_set(STATE_READY, STATE_SHUTTING_DOWN).last
+          WorkerPool.shutdown
+          @@state.set(STATE_SHUTDOWN)
+          return Status::OK
+        end
+      else
+        return Status::INTERNAL_ERROR
+      end
     end
   end
 

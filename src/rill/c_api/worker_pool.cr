@@ -104,7 +104,6 @@ module Rill::CAPI::WorkerPool
       end
 
       unlock
-      destroy_sync
     end
 
     private def work : Nil
@@ -275,15 +274,6 @@ module Rill::CAPI::WorkerPool
       raise "failed to initialize pthread condition" unless status == 0
 
       pointer
-    end
-
-    private def destroy_sync : Nil
-      LibC.pthread_cond_destroy(@done_cond)
-      LibC.pthread_cond_destroy(@cond)
-      LibC.pthread_mutex_destroy(@mutex)
-      LibC.free(@done_cond)
-      LibC.free(@cond)
-      LibC.free(@mutex)
     end
   end
 end
