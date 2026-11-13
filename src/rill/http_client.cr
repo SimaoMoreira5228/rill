@@ -1,6 +1,7 @@
 require "http/client"
 require "uri"
 
+require "./cookie_jar"
 require "./errors"
 require "./request_options"
 
@@ -33,9 +34,16 @@ module Rill
       end
     end
 
+    @cookies : CookieJar
+    @header_cookies : Hash(String, String)
+
     def initialize(@options : RequestOptions = RequestOptions.new)
+      @cookies = CookieJar.new
+      @header_cookies = parse_cookie_values(@options.headers.get?("Cookie"))
       validate_options!
     end
+
+    getter cookies : CookieJar
 
     def get(url : String | URI, headers : HTTP::Headers? = nil) : Response
       follow_redirects(url, headers) do |current_url, request_headers|
@@ -72,11 +80,16 @@ module Rill
       &request : URI, HTTP::Headers -> Response
     ) : Response
       current_url = parse_url(url)
+      origin_url = current_url
       headers = initial_headers(extra_headers)
+      extra_cookies = parse_cookie_values(extra_headers.try(&.get?("Cookie")))
       redirects = 0
 
       loop do
+        same_origin = same_origin?(origin_url, current_url)
+        apply_cookies(headers, current_url, extra_cookies, same_origin)
         response = request.call(current_url, headers)
+        @cookies.add(response.headers, current_url)
 
         if location = redirect_location(response)
           if redirects >= @options.max_redirects
@@ -254,11 +267,53 @@ module Rill
       headers["User-Agent"] ||= @options.user_agent
       headers["Accept"] ||= "*/*"
 
-      unless @options.cookies.empty?
-        headers["Cookie"] ||= cookie_header
+      headers
+    end
+
+    private def apply_cookies(
+      headers : HTTP::Headers,
+      url : URI,
+      extra_cookies : Hash(String, String),
+      include_explicit : Bool,
+    ) : Nil
+      headers.delete("Cookie")
+
+      cookies = {} of String => String
+      @cookies.cookies_for(url).each do |cookie|
+        cookies[cookie.name] = cookie.value
       end
 
-      headers
+      if include_explicit
+        @header_cookies.each do |name, value|
+          cookies[name] = value
+        end
+        extra_cookies.each do |name, value|
+          cookies[name] = value
+        end
+        @options.cookies.each do |name, value|
+          cookies[name] = value
+        end
+      end
+
+      return if cookies.empty?
+
+      headers["Cookie"] = cookies.map { |name, value| "#{name}=#{value}" }.join("; ")
+    end
+
+    private def parse_cookie_values(values : Array(String)?) : Hash(String, String)
+      cookies = {} of String => String
+      return cookies unless values
+
+      values.each do |header|
+        header.split(';').each do |pair|
+          name, separator, value = pair.partition('=')
+          next if separator.empty? || name.strip.empty?
+
+          cookies[name.strip] = value.strip
+        end
+      end
+
+      cookies
     end
 
     private def copy_headers(source : HTTP::Headers, destination : HTTP::Headers) : Nil
@@ -267,10 +322,6 @@ module Rill
           destination.add(name, value)
         end
       end
-    end
-
-    private def cookie_header : String
-      @options.cookies.map { |name, value| "#{name}=#{value}" }.join("; ")
     end
 
     private def redirected_headers(
