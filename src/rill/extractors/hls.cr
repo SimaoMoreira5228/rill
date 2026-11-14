@@ -36,8 +36,13 @@ module Rill::Extractors
     private struct VariantProbe
       getter container : String?
       getter live : Bool
+      getter playlist : Rill::Hls::MediaPlaylist?
 
-      def initialize(@container : String?, @live : Bool)
+      def initialize(
+        @container : String?,
+        @live : Bool,
+        @playlist : Rill::Hls::MediaPlaylist? = nil,
+      )
       end
     end
 
@@ -54,8 +59,9 @@ module Rill::Extractors
         raise UnsupportedManifestError.new("cannot determine HLS container for separate audio")
       end
 
-      if probe.live && separate
-        raise UnsupportedManifestError.new("live HLS with separate audio is not supported")
+      if probe.live
+        raise UnsupportedManifestError.new("live HLS with separate audio is not supported") if separate
+        validate_live_variant(probe.playlist)
       end
 
       formats = playlist.variants.map_with_index do |variant, index|
@@ -126,17 +132,37 @@ module Rill::Extractors
       client : HTTPClient,
       variants : Array(Rill::Hls::Variant),
     ) : VariantProbe
+      live = false
+
       variants.each do |variant|
         response = client.get(variant.url)
         playlist = Rill::Hls::Parser.parse(response.body, response.url)
         next unless playlist.is_a?(Rill::Hls::MediaPlaylist)
 
-        return VariantProbe.new(media_container(playlist), !playlist.ended)
+        live ||= !playlist.ended
+        container = media_container(playlist)
+        return VariantProbe.new(container, live, playlist) if container
       rescue Rill::Error
         next
       end
 
-      VariantProbe.new(nil, false)
+      VariantProbe.new(nil, live)
+    end
+
+    private def validate_live_variant(playlist : Rill::Hls::MediaPlaylist?) : Nil
+      return unless playlist
+
+      if playlist.encrypted
+        raise UnsupportedManifestError.new("encrypted live HLS is not supported")
+      end
+
+      if playlist.map_url
+        raise UnsupportedManifestError.new("live HLS with initialization sections is not supported")
+      end
+
+      if playlist.segments.any? { |segment| segment.byte_range }
+        raise UnsupportedManifestError.new("live HLS with byte ranges is not supported")
+      end
     end
 
     private def extract_media(
@@ -145,13 +171,14 @@ module Rill::Extractors
       playlist_url : URI,
     ) : Media
       live = !playlist.ended
+      duration = live ? nil : playlist.duration_seconds
       format = Format.new(
         format_id: "hls",
         url: playlist_url,
         kind: FormatKind::Combined,
         protocol: FormatProtocol::Hls,
         container: media_container(playlist),
-        duration_seconds: playlist.duration_seconds,
+        duration_seconds: duration,
         note: "HLS",
         live: live,
       )
@@ -159,7 +186,7 @@ module Rill::Extractors
       Media.new(
         title: title_for(url),
         webpage_url: url,
-        duration_seconds: playlist.duration_seconds,
+        duration_seconds: duration,
         extractor: name,
         formats: [format],
         is_live: live,
@@ -208,7 +235,10 @@ module Rill::Extractors
     private def media_container(playlist : Rill::Hls::MediaPlaylist) : String?
       return "mp4" if playlist.map_url
 
-      extension = File.extname(playlist.segments.first.url.path).lchop('.').downcase
+      segment = playlist.segments.first?
+      return nil unless segment
+
+      extension = File.extname(segment.url.path).lchop('.').downcase
       extension.empty? ? nil : extension
     end
 

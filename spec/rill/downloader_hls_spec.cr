@@ -225,6 +225,43 @@ describe Rill::Downloader do
     end
   end
 
+  it "reports a skipped live window without deleting the recording" do
+    server = TestHTTPServer.new
+    requests = 0
+    server.on("/hls/media.m3u8") do |_, response|
+      requests += 1
+      response.print(case requests
+      when 1
+        "#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:0\n#EXTINF:1,\nseg0.ts\n#EXTINF:1,\nseg1.ts\n"
+      else
+        "#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXT-X-MEDIA-SEQUENCE:3\n#EXTINF:1,\nseg3.ts\n#EXTINF:1,\nseg4.ts\n"
+      end)
+    end
+    {"seg0.ts" => "AAAA", "seg1.ts" => "BBBB", "seg3.ts" => "CCCC", "seg4.ts" => "DDDD"}.each do |name, body|
+      server.on("/hls/#{name}") do |_, response|
+        response.content_length = body.bytesize
+        response.print(body)
+      end
+    end
+    server.start
+
+    begin
+      with_temp_dir do |directory|
+        target = directory / "media.ts"
+        part = Path.new("#{target}.part")
+
+        expect_raises(Rill::ManifestError, /skipped segments/) do
+          downloader.download(hls_format("#{server.url}/hls/media.m3u8"), target)
+        end
+
+        File.exists?(target).should be_false
+        File.read(part).should eq("BBBB")
+      end
+    ensure
+      server.close
+    end
+  end
+
   it "rejects encrypted HLS playlists" do
     server = TestHTTPServer.new
     server.on("/hls/media.m3u8") do |_, response|

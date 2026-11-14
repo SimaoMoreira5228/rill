@@ -90,6 +90,18 @@ describe Rill::Hls::Parser do
     playlist.ended.should be_false
   end
 
+  it "allows an empty live media playlist" do
+    playlist = parse_playlist(<<-M3U8).as(Rill::Hls::MediaPlaylist)
+      #EXTM3U
+      #EXT-X-TARGETDURATION:4
+      #EXT-X-MEDIA-SEQUENCE:10
+    M3U8
+
+    playlist.segments.should be_empty
+    playlist.ended.should be_false
+    playlist.media_sequence.should eq(10)
+  end
+
   it "marks encrypted playlists" do
     playlist = parse_playlist(<<-M3U8).as(Rill::Hls::MediaPlaylist)
       #EXTM3U

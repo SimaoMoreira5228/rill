@@ -8,6 +8,8 @@ require "../segment_assembly"
 
 module Rill
   class Downloader
+    LIVE_STALL_POLLS = 12
+
     private def transfer_hls(
       url : String | URI,
       part_path : Path,
@@ -84,21 +86,41 @@ module Rill
 
         current = playlist
         next_sequence = live_start_sequence(current)
+        stalled_polls = 0
 
         loop do
+          if current.media_sequence > next_sequence
+            raise ManifestError.new(
+              "live HLS skipped segments #{next_sequence}..#{current.media_sequence - 1}",
+            )
+          end
+
+          previous = next_sequence
           next_sequence = download_live_segments(current, writer, next_sequence)
+          if next_sequence == previous && !current.ended
+            stalled_polls += 1
+            if stalled_polls >= LIVE_STALL_POLLS
+              raise ManifestError.new("live HLS playlist stopped advancing")
+            end
+          else
+            stalled_polls = 0
+          end
+
           break if current.ended
 
           sleep(live_interval(current))
           cancellation.try(&.check!)
 
           response = @http.get(playlist_url)
+          cancellation.try(&.check!)
+
           refreshed = Hls::Parser.parse(response.body, response.url)
           unless refreshed.is_a?(Hls::MediaPlaylist)
             raise UnsupportedManifestError.new("live HLS playlist changed to a master playlist")
           end
 
           validate_hls_live(refreshed)
+          validate_hls_assembly(refreshed)
           current = refreshed
         end
 
@@ -108,7 +130,7 @@ module Rill
       publish_live_part(part_path, target_path, overwrite)
       raise ex
     rescue ex : Rill::Error | IO::Error
-      remove_part(part_path)
+      remove_part(part_path) if File.exists?(part_path) && File.size(part_path) == 0
       raise ex
     end
 
@@ -145,6 +167,11 @@ module Rill
 
     private def publish_live_part(part_path : Path, target_path : Path, overwrite : Bool) : Nil
       return unless File.exists?(part_path)
+
+      if File.size(part_path) == 0
+        remove_part(part_path)
+        return
+      end
 
       publish(part_path, target_path, overwrite)
     rescue Rill::Error

@@ -222,7 +222,7 @@ module Rill::Hls::Parser
       end
     end
 
-    raise ManifestError.new("HLS media playlist has no segments") if segments.empty?
+    raise ManifestError.new("HLS media playlist has no segments") if segments.empty? && ended
 
     MediaPlaylist.new(
       segments: segments,

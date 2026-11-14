@@ -234,6 +234,72 @@ describe Rill::Extractors::Hls do
     end
   end
 
+  it "marks a live media playlist" do
+    server = TestHTTPServer.new
+    server.on("/index.m3u8") do |_, response|
+      response.print(<<-M3U8)
+        #EXTM3U
+        #EXT-X-TARGETDURATION:4
+        #EXTINF:4,
+        seg0.ts
+      M3U8
+    end
+    server.start
+
+    begin
+      media = extractor.extract(URI.parse("#{server.url}/index.m3u8"), Rill::HTTPClient.new)
+      media.validate!
+
+      media.is_live?.should be_true
+      media.duration_seconds.should be_nil
+
+      format = media.formats.first
+      format.live?.should be_true
+      format.duration_seconds.should be_nil
+    ensure
+      server.close
+    end
+  end
+
+  it "keeps looking for a variant container" do
+    server = TestHTTPServer.new
+    server.on("/master.m3u8") do |_, response|
+      response.print(<<-M3U8)
+        #EXTM3U
+        #EXT-X-STREAM-INF:BANDWIDTH=400000,RESOLUTION=320x180
+        low/index.m3u8
+        #EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360
+        high/index.m3u8
+      M3U8
+    end
+    server.on("/low/index.m3u8") do |_, response|
+      response.print(<<-M3U8)
+        #EXTM3U
+        #EXTINF:4,
+        seg0
+        #EXT-X-ENDLIST
+      M3U8
+    end
+    server.on("/high/index.m3u8") do |_, response|
+      response.print(<<-M3U8)
+        #EXTM3U
+        #EXTINF:4,
+        seg0.ts
+        #EXT-X-ENDLIST
+      M3U8
+    end
+    server.start
+
+    begin
+      media = extractor.extract(URI.parse("#{server.url}/master.m3u8"), Rill::HTTPClient.new)
+      media.validate!
+
+      media.formats.first.container.should eq("ts")
+    ensure
+      server.close
+    end
+  end
+
   it "rejects live master playlists with separate audio" do
     server = TestHTTPServer.new
     server.on("/master.m3u8") do |_, response|
