@@ -1,5 +1,6 @@
 CRYSTAL ?= crystal
 CC ?= cc
+CXX ?= c++
 MESON ?= meson
 NATIVE_BUILD ?= build/native
 FFMPEG ?= subproject
@@ -16,7 +17,7 @@ LIBRARY := build/librill.so
 C_LINK_FLAGS := -Lbuild -l:librill.so -Wl,-rpath,$(CURDIR)/build
 endif
 
-.PHONY: all cli lib media-helper media-helper-system media-helper-static test test-media test-c-api clean
+.PHONY: all cli lib media-helper media-helper-system media-helper-static test test-media test-c-api test-cpp test-rust clean
 
 all: cli lib
 
@@ -55,7 +56,16 @@ test-media: media-helper
 test-c-api: lib
 	mkdir -p bin build
 	$(CC) -Iinclude -o bin/c_api_smoke test/c_api_smoke.c $(C_LINK_FLAGS) -lpthread
-	test/run_c_api.sh
+	test/run_with_server.sh ./bin/c_api_smoke
+
+test-cpp: lib
+	mkdir -p bin build
+	$(CXX) -std=c++17 -Iinclude -Ibindings/cpp -o bin/cpp_smoke test/cpp_smoke.cpp $(C_LINK_FLAGS) -lpthread
+	test/run_with_server.sh ./bin/cpp_smoke
+
+test-rust: lib
+	test/run_with_server.sh env RILL_LIB_DIR=$(CURDIR)/build LD_LIBRARY_PATH=$(CURDIR)/build \
+		cargo test --quiet --manifest-path bindings/rust/Cargo.toml
 
 clean:
 	rm -rf bin build

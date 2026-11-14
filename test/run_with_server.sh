@@ -1,6 +1,9 @@
 #!/bin/sh
 set -eu
 
+command=$1
+shift
+
 tmp=$(mktemp -d)
 port_file=$(mktemp)
 server_pid=""
@@ -34,4 +37,5 @@ port=$(cat "$port_file")
 RILL_C_API_TEST_URL="http://127.0.0.1:$port/sample.mp4" \
 RILL_C_API_TEST_SLOW_URL="http://127.0.0.1:$port/slow.mp4" \
 RILL_C_API_TEST_OUTPUT="$tmp/output.mp4" \
-  ./bin/c_api_smoke
+RILL_C_API_TEST_CANCEL_OUTPUT="$tmp/cancel.mp4" \
+  "$command" "$@"

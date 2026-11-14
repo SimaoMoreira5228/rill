@@ -199,13 +199,14 @@ int main(void) {
   const char *download_url = getenv("RILL_C_API_TEST_URL");
   const char *download_output = getenv("RILL_C_API_TEST_OUTPUT");
   const char *slow_url = getenv("RILL_C_API_TEST_SLOW_URL");
+  const char *cancel_output = getenv("RILL_C_API_TEST_CANCEL_OUTPUT");
 
   if (download_url && download_output) {
     test_download(download_url, download_output);
   }
 
-  if (slow_url && download_output) {
-    test_download_cancel(slow_url, download_output);
+  if (slow_url && cancel_output) {
+    test_download_cancel(slow_url, cancel_output);
   }
 
   pthread_t stoppers[4];
