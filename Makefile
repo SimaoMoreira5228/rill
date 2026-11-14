@@ -16,18 +16,21 @@ ifeq ($(OS),Windows_NT)
 EXE := .exe
 HELPER := rill-media.exe
 SHARED_FLAGS := /DLL /DEF:$(CURDIR)/csrc/rill.def /IMPLIB:$(CURDIR)/build/rill.lib
+SHARED_DEFINES := -Dwithout_main
 LIBRARY := build/rill.dll
 C_LINK_FLAGS := -Lbuild -lrill
 else ifeq ($(UNAME_S),Darwin)
 EXE :=
 HELPER := rill-media
 SHARED_FLAGS := -dynamiclib
+SHARED_DEFINES :=
 LIBRARY := build/librill.dylib
 C_LINK_FLAGS := -Lbuild -lrill -Wl,-rpath,$(CURDIR)/build
 else
 EXE :=
 HELPER := rill-media
 SHARED_FLAGS := -shared
+SHARED_DEFINES :=
 LIBRARY := build/librill.so
 C_LINK_FLAGS := -Lbuild -l:librill.so -Wl,-rpath,$(CURDIR)/build
 endif
@@ -42,7 +45,7 @@ cli:
 
 lib:
 	mkdir -p build
-	$(CRYSTAL) build --single-module --link-flags "$(SHARED_FLAGS)" -o $(LIBRARY) src/c_api.cr
+	$(CRYSTAL) build --single-module $(SHARED_DEFINES) --link-flags "$(SHARED_FLAGS)" -o $(LIBRARY) src/c_api.cr
 
 media-helper:
 	@if [ ! -f $(NATIVE_BUILD)/build.ninja ]; then \
