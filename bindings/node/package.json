@@ -1,7 +1,7 @@
 {
   "name": "rill-node",
   "version": "2026.11.16",
-  "description": "Node.js bindings for the Rill media extractor and downloader",
+  "description": "Node.js bindings for Rill, a media extractor and downloader with yt-dlp-style site extractors",
   "license": "Apache-2.0",
   "main": "index.js",
   "types": "index.d.ts",
@@ -36,7 +36,14 @@
     "video",
     "audio",
     "download",
-    "extractor"
+    "extractor",
+    "yt-dlp",
+    "youtube-dl",
+    "youtube-downloader",
+    "media-downloader",
+    "video-downloader",
+    "audio-downloader",
+    "crystal"
   ],
   "scripts": {
     "prepack": "node scripts/prepack.js",

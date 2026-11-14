@@ -1,7 +1,7 @@
 {
   "name": "rill-bun",
   "version": "2026.11.16",
-  "description": "Bun bindings for the Rill media extractor and downloader",
+  "description": "Bun bindings for Rill, a media extractor and downloader with yt-dlp-style site extractors",
   "license": "Apache-2.0",
   "type": "module",
   "main": "index.ts",
@@ -35,7 +35,14 @@
     "audio",
     "download",
     "extractor",
-    "bun"
+    "bun",
+    "yt-dlp",
+    "youtube-dl",
+    "youtube-downloader",
+    "media-downloader",
+    "video-downloader",
+    "audio-downloader",
+    "crystal"
   ],
   "scripts": {
     "prepack": "node scripts/prepack.cjs",

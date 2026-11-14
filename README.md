@@ -4,6 +4,17 @@ Rill extracts media metadata and downloads files. The core is written in Crystal
 
 The project is pragmatic about site support. Site-specific extractors handle sites that need APIs, embedded data, or signed URLs. Generic extraction covers pages with OpenGraph, schema.org JSON-LD, and direct media links. When a site needs something Rill does not implement, it reports a readable error instead of guessing.
 
+## Rill and yt-dlp
+
+Rill follows the same broad model as yt-dlp: explicit site extractors, a registry, and a generic fallback for pages that expose common metadata or direct media URLs. It is not a drop-in replacement.
+
+- The site list is much smaller.
+- YouTube signature and PO-token handling is incomplete.
+- There is no extractor plugin system.
+- It does not try to mirror yt-dlp's command-line option surface.
+
+If you need the widest site coverage, use yt-dlp. Rill is for a small native core with a stable C ABI and bindings you can embed.
+
 ## Supported sites
 
 Current site extractors:
