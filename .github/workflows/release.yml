@@ -98,6 +98,12 @@ jobs:
             if [[ -f build/rill.lib ]]; then
               cp build/rill.lib "dist/sdk-$key/lib/rill.lib"
             fi
+
+            crystal_dir=$(dirname "$(command -v crystal)")
+            mkdir -p "bindings/node/native/$key" "bindings/bun/native/$key"
+            for dest in "dist/cli-$key/bin" "dist/sdk-$key/lib" "bindings/node/native/$key" "bindings/bun/native/$key"; do
+              cp "$crystal_dir"/*.dll "$dest"/
+            done
           elif [[ "$key" == darwin-* ]]; then
             mkdir -p "dist/sdk-$key/lib-tmp"
             cp build/librill.dylib "dist/sdk-$key/lib-tmp/librill.dylib"
