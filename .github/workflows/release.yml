@@ -286,7 +286,10 @@ jobs:
 
       - uses: softprops/action-gh-release@v2
         with:
-          files: dist/*.tgz
+          files: |
+            dist/*.tar.gz
+            dist/*.tgz
+            dist/SHA256SUMS
 
       - uses: actions/setup-node@v4
         with:
