@@ -38,6 +38,7 @@ jobs:
 
       - name: Test C ABI
         run: |
+          set -x
           cat > abi_test.c <<'EOF'
           #include <stdio.h>
           #include "rill.h"
@@ -48,7 +49,7 @@ jobs:
           }
           EOF
           cc -Iinclude -o abi_test.exe abi_test.c -Lbuild -lrill
-          ./abi_test.exe
+          PATH="$PWD/build:$PATH" ./abi_test.exe
 
       - name: Show runtime dependencies
         run: |
