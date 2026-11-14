@@ -157,6 +157,9 @@ jobs:
           RILL_PLATFORM_KEY: ${{ matrix.key }}
         run: node scripts/package-native.cjs
 
+      - uses: oven-sh/setup-bun@v2
+        if: runner.os == 'Windows'
+
       - name: Test Windows binaries
         if: runner.os == 'Windows'
         shell: bash
