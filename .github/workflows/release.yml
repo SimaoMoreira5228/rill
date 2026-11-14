@@ -110,6 +110,22 @@ jobs:
                 cp "$crystal_dir/$dll" "$dest"/
               done
             done
+
+            vc_runtime_dir=$(dirname "$(find "/c/Program Files/Microsoft Visual Studio" -path '*/x64/Microsoft.VC*.CRT/vcruntime140.dll' -print -quit)")
+            if [[ ! -d "$vc_runtime_dir" ]]; then
+              echo "Missing Visual C++ runtime redistributable" >&2
+              exit 1
+            fi
+
+            for dll in vcruntime140.dll vcruntime140_1.dll; do
+              if [[ ! -f "$vc_runtime_dir/$dll" ]]; then
+                echo "Missing Visual C++ runtime library: $vc_runtime_dir/$dll" >&2
+                exit 1
+              fi
+              for dest in "dist/cli-$key/bin" "dist/sdk-$key/lib" "bindings/node/native/$key" "bindings/bun/native/$key"; do
+                cp "$vc_runtime_dir/$dll" "$dest"/
+              done
+            done
           elif [[ "$key" == darwin-* ]]; then
             mkdir -p "dist/sdk-$key/lib-tmp"
             cp build/librill.dylib "dist/sdk-$key/lib-tmp/librill.dylib"
@@ -163,8 +179,13 @@ jobs:
       - name: Test Windows binaries
         if: runner.os == 'Windows'
         shell: bash
+        env:
+          RILL_PLATFORM_KEY: ${{ matrix.key }}
         run: |
           set -x
+
+          test -f "dist/cli-$RILL_PLATFORM_KEY/bin/vcruntime140.dll"
+          test -f "dist/cli-$RILL_PLATFORM_KEY/bin/vcruntime140_1.dll"
 
           ./bin/rill.exe --version
           ./bin/rill.exe extract "https://example.com/clip.mp4" > /dev/null

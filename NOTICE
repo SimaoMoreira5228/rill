@@ -7,3 +7,5 @@ relevant source files and repository history.
 The optional rill-media helper links against FFmpeg (LGPL-2.1-or-later).
 Distributions of that helper must include FFmpeg's license notices and
 comply with its relinking requirements.
+
+Windows builds include the Microsoft Visual C++ runtime redistributable files.
