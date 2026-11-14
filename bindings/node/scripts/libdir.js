@@ -9,15 +9,17 @@ const libraryName =
       ? "rill.dll"
       : "librill.so";
 
+let directory;
+
 if (process.env.RILL_LIBRARY) {
-  console.log(path.dirname(process.env.RILL_LIBRARY));
+  directory = path.dirname(process.env.RILL_LIBRARY);
 } else if (process.env.RILL_LIB_DIR) {
-  console.log(process.env.RILL_LIB_DIR);
+  directory = process.env.RILL_LIB_DIR;
 } else {
   const native = path.join(packageDir, "native");
-  if (fs.existsSync(path.join(native, libraryName))) {
-    console.log(native);
-  } else {
-    console.log(path.resolve(packageDir, "..", "..", "build"));
-  }
+  directory = fs.existsSync(path.join(native, libraryName))
+    ? native
+    : path.resolve(packageDir, "..", "..", "build");
 }
+
+console.log(directory.replace(/\\/g, "/"));
