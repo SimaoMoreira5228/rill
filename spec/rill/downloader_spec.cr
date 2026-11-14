@@ -352,8 +352,7 @@ describe Rill::Downloader do
              output: Process::Redirect::Close,
              error: Process::Redirect::Close,
            ).success?
-      pending "ffmpeg is not installed"
-      next
+      pending! "ffmpeg is not installed"
     end
 
     with_temp_dir do |directory|

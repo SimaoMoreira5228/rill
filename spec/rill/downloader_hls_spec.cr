@@ -147,8 +147,7 @@ describe Rill::Downloader do
 
   it "merges HLS video with separate audio" do
     unless hls_audio_ffmpeg_available?
-      pending "ffmpeg is not installed"
-      next
+      pending! "ffmpeg is not installed"
     end
 
     with_temp_dir do |directory|

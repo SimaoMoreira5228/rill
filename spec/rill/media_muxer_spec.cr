@@ -84,8 +84,7 @@ end
 describe Rill::MediaMuxer do
   it "merges via system ffmpeg" do
     unless ffmpeg_available?
-      pending "ffmpeg is not installed"
-      next
+      pending! "ffmpeg is not installed"
     end
 
     with_media_directory do |directory|
@@ -108,13 +107,11 @@ describe Rill::MediaMuxer do
     helper = Path.new("build/rill-media")
 
     unless File.file?(helper)
-      pending "build the helper with make media-helper"
-      next
+      pending! "build the helper with make media-helper"
     end
 
     unless ffmpeg_available?
-      pending "ffmpeg is not installed"
-      next
+      pending! "ffmpeg is not installed"
     end
 
     with_media_directory do |directory|
@@ -137,8 +134,7 @@ describe Rill::MediaMuxer do
 
   it "refuses to overwrite an existing output" do
     unless ffmpeg_available?
-      pending "ffmpeg is not installed"
-      next
+      pending! "ffmpeg is not installed"
     end
 
     with_media_directory do |directory|
@@ -156,8 +152,7 @@ describe Rill::MediaMuxer do
 
   it "overwrites when asked" do
     unless ffmpeg_available?
-      pending "ffmpeg is not installed"
-      next
+      pending! "ffmpeg is not installed"
     end
 
     with_media_directory do |directory|
@@ -182,8 +177,7 @@ describe Rill::MediaMuxer do
 
   it "reports a disabled backend" do
     unless ffmpeg_available?
-      pending "ffmpeg is not installed"
-      next
+      pending! "ffmpeg is not installed"
     end
 
     with_media_directory do |directory|
