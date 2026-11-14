@@ -1,16 +1,47 @@
 {
   "name": "@rill/bun",
   "version": "2026.11.14",
+  "description": "Bun bindings for the Rill media extractor and downloader",
+  "license": "Apache-2.0",
   "type": "module",
   "main": "index.ts",
+  "types": "index.ts",
   "files": [
     "index.ts",
-    "extract-worker.ts"
+    "extract-worker.ts",
+    "scripts/**/*",
+    "native-src/**/*",
+    "native/**/*",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
   ],
   "engines": {
     "bun": ">=1.1.30"
   },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SimaoMoreira5228/rill.git",
+    "directory": "bindings/bun"
+  },
+  "homepage": "https://github.com/SimaoMoreira5228/rill",
+  "bugs": {
+    "url": "https://github.com/SimaoMoreira5228/rill/issues"
+  },
+  "keywords": [
+    "rill",
+    "media",
+    "video",
+    "audio",
+    "download",
+    "extractor",
+    "bun"
+  ],
   "scripts": {
+    "prepack": "node scripts/prepack.cjs",
     "test": "bun run smoke.ts"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

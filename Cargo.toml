@@ -1,0 +1,45 @@
+[package]
+name = "rill-media"
+version = "2026.11.14"
+edition = "2024"
+rust-version = "1.85"
+license = "Apache-2.0"
+description = "Safe Rust bindings for the Rill media extractor and downloader"
+repository = "https://github.com/SimaoMoreira5228/rill"
+homepage = "https://github.com/SimaoMoreira5228/rill"
+documentation = "https://docs.rs/rill-media"
+readme = "bindings/rust/README.md"
+keywords = ["media", "video", "download", "extractor", "youtube"]
+categories = ["multimedia", "api-bindings"]
+links = "rill"
+build = "bindings/rust/build.rs"
+include = [
+    "src/**/*",
+    "include/**/*",
+    "bindings/rust/src/**/*",
+    "bindings/rust/tests/**/*",
+    "bindings/rust/examples/**/*",
+    "bindings/rust/build.rs",
+    "bindings/rust/README.md",
+    "shard.yml",
+    "Cargo.toml",
+]
+
+[lib]
+name = "rill_media"
+path = "bindings/rust/src/lib.rs"
+
+[[test]]
+name = "smoke"
+path = "bindings/rust/tests/smoke.rs"
+
+[[example]]
+name = "extract"
+path = "bindings/rust/examples/extract.rs"
+
+[features]
+default = []
+tokio = ["dep:tokio"]
+
+[dependencies]
+tokio = { version = "1", features = ["rt", "time"], optional = true }

@@ -1,3 +1,5 @@
+#![deny(unsafe_op_in_unsafe_fn)]
+
 use std::error::Error as StdError;
 use std::ffi::{CStr, CString};
 use std::fmt;
@@ -7,11 +9,11 @@ use std::thread;
 use std::time::Duration;
 
 #[repr(C)]
-pub struct Job {
+struct Job {
     _private: [u8; 0],
 }
 
-pub type JobPtr = *mut Job;
+type JobPtr = *mut Job;
 
 unsafe extern "C" {
     fn rill_abi_version() -> c_int;
@@ -58,6 +60,10 @@ impl Error {
 
     pub fn kind(&self) -> Option<&str> {
         self.kind.as_deref()
+    }
+
+    pub fn message(&self) -> &str {
+        &self.message
     }
 
     fn invalid_argument(message: impl Into<String>) -> Self {
@@ -117,10 +123,7 @@ pub fn shutdown() -> Result<(), Error> {
 }
 
 #[cfg(feature = "tokio")]
-pub async fn extract_json_async(
-    url: String,
-    options: Option<String>,
-) -> Result<String, Error> {
+pub async fn extract_json_async(url: String, options: Option<String>) -> Result<String, Error> {
     tokio::task::spawn_blocking(move || extract_json(&url, options.as_deref()))
         .await
         .map_err(|error| Error {
@@ -197,7 +200,8 @@ pub struct Download {
 
 impl Download {
     pub fn start(url: &str, output: &str, options: Option<&str>) -> Result<Self, Error> {
-        let url = CString::new(url).map_err(|_| Error::invalid_argument("URL contains a NUL byte"))?;
+        let url =
+            CString::new(url).map_err(|_| Error::invalid_argument("URL contains a NUL byte"))?;
         let output = CString::new(output)
             .map_err(|_| Error::invalid_argument("output path contains a NUL byte"))?;
         let options = options
@@ -310,7 +314,9 @@ unsafe fn take_string(value: *mut c_char) -> String {
         return String::new();
     }
 
-    let text = CStr::from_ptr(value).to_string_lossy().into_owned();
+    let text = unsafe { CStr::from_ptr(value) }
+        .to_string_lossy()
+        .into_owned();
     unsafe {
         rill_free_string(value);
     }

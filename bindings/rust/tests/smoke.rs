@@ -20,25 +20,24 @@ fn smoke() {
     let cancel_output = env::var("RILL_C_API_TEST_CANCEL_OUTPUT").ok();
 
     if let (Some(url), Some(output)) = (url, output) {
-        let download =
-            rill_media::Download::start(&url, &output, Some("{\"overwrite\":true}")).expect("start");
-        let progress = download
-            .wait(Duration::from_millis(50))
-            .expect("wait");
+        let download = rill_media::Download::start(&url, &output, Some("{\"overwrite\":true}"))
+            .expect("start");
+        let progress = download.wait(Duration::from_millis(50)).expect("wait");
 
         assert_eq!(progress.state, rill_media::DownloadState::Completed);
         assert!(progress.downloaded > 0);
         assert!(download.error().is_empty());
-        assert_eq!(fs::read_to_string(&output).expect("output"), "c-api-download");
+        assert_eq!(
+            fs::read_to_string(&output).expect("output"),
+            "c-api-download"
+        );
 
         if let (Some(slow_url), Some(cancel_output)) = (slow_url, cancel_output) {
             let download =
                 rill_media::Download::start(&slow_url, &cancel_output, None).expect("start");
             download.cancel().expect("cancel");
 
-            let progress = download
-                .wait(Duration::from_millis(50))
-                .expect("wait");
+            let progress = download.wait(Duration::from_millis(50)).expect("wait");
 
             assert_eq!(progress.state, rill_media::DownloadState::Cancelled);
             assert!(!download.error().is_empty());
@@ -52,12 +51,10 @@ fn smoke() {
             .build()
             .expect("runtime");
         runtime.block_on(async {
-            let json = rill_media::extract_json_async(
-                "https://example.com/clip.mp4".to_string(),
-                None,
-            )
-            .await
-            .expect("async extract");
+            let json =
+                rill_media::extract_json_async("https://example.com/clip.mp4".to_string(), None)
+                    .await
+                    .expect("async extract");
             assert!(json.contains("\"title\": \"clip\""));
         });
     }

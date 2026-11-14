@@ -1,10 +1,49 @@
 {
-  "name": "rill-media-node",
+  "name": "@rill/node",
   "version": "2026.11.14",
+  "description": "Node.js bindings for the Rill media extractor and downloader",
+  "license": "Apache-2.0",
   "main": "index.js",
+  "types": "index.d.ts",
   "gypfile": true,
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "binding.gyp",
+    "src/**/*",
+    "scripts/**/*",
+    "native-src/**/*",
+    "native/**/*",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/SimaoMoreira5228/rill.git",
+    "directory": "bindings/node"
+  },
+  "homepage": "https://github.com/SimaoMoreira5228/rill",
+  "bugs": {
+    "url": "https://github.com/SimaoMoreira5228/rill/issues"
+  },
+  "keywords": [
+    "rill",
+    "media",
+    "video",
+    "audio",
+    "download",
+    "extractor"
+  ],
   "scripts": {
-    "install": "node-gyp rebuild",
+    "prepack": "node scripts/prepack.js",
+    "install": "node scripts/build-native.js && node-gyp rebuild",
     "test": "node smoke.js"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

@@ -1,6 +1,6 @@
 import { CString, dlopen, FFIType, ptr } from "bun:ffi";
-import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
 
@@ -11,14 +11,83 @@ const libraryName =
       ? "rill.dll"
       : "librill.so";
 
-const libraryPath =
-  process.env.RILL_LIBRARY ?? join(import.meta.dir, "..", "..", "build", libraryName);
-
 const workerPath = fileURLToPath(new URL("./extract-worker.ts", import.meta.url));
 
-if (!existsSync(libraryPath)) {
-  throw new Error(`Rill library not found at ${libraryPath}`);
+function configureMediaHelper(): void {
+  if (process.env.RILL_MEDIA_HELPER) {
+    return;
+  }
+
+  const helperName = process.platform === "win32" ? "rill-media.exe" : "rill-media";
+  const candidates = [
+    join(import.meta.dir, "native", helperName),
+    join(import.meta.dir, "..", "..", "build", helperName),
+    join(process.cwd(), "build", helperName),
+  ];
+
+  const helper = candidates.find(existsSync);
+  if (helper) {
+    process.env.RILL_MEDIA_HELPER = helper;
+  }
 }
+
+function ensureLibrary(): string {
+  if (process.env.RILL_LIBRARY) {
+    return process.env.RILL_LIBRARY;
+  }
+
+  const candidates = [
+    join(import.meta.dir, "native", libraryName),
+    join(import.meta.dir, "..", "..", "build", libraryName),
+    join(process.cwd(), "build", libraryName),
+  ];
+
+  for (const candidate of candidates) {
+    if (existsSync(candidate)) {
+      return candidate;
+    }
+  }
+
+  const vendored = join(import.meta.dir, "native-src");
+  const sourceRoot = existsSync(join(vendored, "src", "c_api.cr"))
+    ? vendored
+    : join(import.meta.dir, "..", "..");
+  const source = join(sourceRoot, "src", "c_api.cr");
+
+  if (!existsSync(source)) {
+    throw new Error(
+      "Rill library not found. Set RILL_LIBRARY, or install Crystal 1.22 to build it from source.",
+    );
+  }
+
+  const library = join(import.meta.dir, "native", libraryName);
+  mkdirSync(dirname(library), { recursive: true });
+
+  const result = Bun.spawnSync({
+    cmd: [
+      process.env.CRYSTAL ?? "crystal",
+      "build",
+      "--single-module",
+      "--link-flags",
+      process.platform === "win32" ? "/DLL" : "-shared",
+      "-o",
+      library,
+      source,
+    ],
+    cwd: sourceRoot,
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+
+  if (result.exitCode !== 0) {
+    throw new Error("crystal build failed while preparing the Rill library");
+  }
+
+  return library;
+}
+
+configureMediaHelper();
+const libraryPath = ensureLibrary();
 
 const { symbols } = dlopen(libraryPath, {
   rill_abi_version: { args: [], returns: FFIType.i32 },

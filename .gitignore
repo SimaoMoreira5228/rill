@@ -8,5 +8,13 @@
 /local/
 /.opencode/
 subprojects/.wraplock
-bindings/rust/target/
 bindings/node/build/
+bindings/node/native-src/
+bindings/node/native/
+bindings/bun/native-src/
+bindings/bun/native/
+/target/
+bindings/node/LICENSE
+bindings/node/NOTICE
+bindings/bun/LICENSE
+bindings/bun/NOTICE

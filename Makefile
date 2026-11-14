@@ -77,7 +77,7 @@ test-cpp: lib
 
 test-rust: lib
 	test/run_with_server.sh env RILL_LIB_DIR=$(CURDIR)/build LD_LIBRARY_PATH=$(CURDIR)/build \
-		cargo test $(RUST_FEATURES) --quiet --manifest-path bindings/rust/Cargo.toml
+		cargo test $(RUST_FEATURES) --quiet --manifest-path Cargo.toml
 
 test-bun: lib
 	test/run_with_server.sh env RILL_LIBRARY=$(CURDIR)/build/librill.so \
