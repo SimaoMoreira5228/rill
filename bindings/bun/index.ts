@@ -85,7 +85,7 @@ function ensureLibrary(): string {
 
   if (!existsSync(join(buildDir, "build.ninja"))) {
     const setup = Bun.spawnSync({
-      cmd: [meson, "setup", "build", "--buildtype=release", "-Dmedia=false"],
+      cmd: [meson, "setup", "build", "--buildtype=release", "-Dmedia=false", "-Dtests=false"],
       cwd: sourceRoot,
       stdout: "inherit",
       stderr: "inherit",

@@ -11,3 +11,9 @@ option(
   value: true,
   description: 'Build the rill-media helper',
 )
+option(
+  'tests',
+  type: 'boolean',
+  value: true,
+  description: 'Register Meson test targets',
+)

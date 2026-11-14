@@ -176,36 +176,38 @@ install_data(
   install_dir: join_paths(get_option('datadir'), 'doc', 'rill'),
 )
 
-test_env = [
-  'RILL_MEDIA_HELPER=' + join_paths(build_root, 'rill-media'),
-]
+if get_option('tests')
+  test_env = [
+    'RILL_MEDIA_HELPER=' + join_paths(build_root, 'rill-media'),
+  ]
 
-test(
-  'crystal',
-  crystal,
-  args: ['spec', '--link-flags', js_link_flags],
-  workdir: source_root,
-  env: test_env,
-  timeout: 600,
-)
-
-if host_system == 'linux'
   test(
-    'bindings',
-    find_program('test/meson_bindings.sh'),
-    args: [build_root, source_root],
+    'crystal',
+    crystal,
+    args: ['spec', '--link-flags', js_link_flags],
     workdir: source_root,
     env: test_env,
-    timeout: 900,
-  )
-endif
-
-if host_system != 'windows'
-  test(
-    'targets',
-    find_program('test/meson_targets.sh'),
-    args: [source_root],
-    workdir: source_root,
     timeout: 600,
   )
+
+  if host_system == 'linux'
+    test(
+      'bindings',
+      find_program('test/meson_bindings.sh'),
+      args: [build_root, source_root],
+      workdir: source_root,
+      env: test_env,
+      timeout: 900,
+    )
+  endif
+
+  if host_system != 'windows'
+    test(
+      'targets',
+      find_program('test/meson_targets.sh'),
+      args: [source_root],
+      workdir: source_root,
+      timeout: 600,
+    )
+  endif
 endif

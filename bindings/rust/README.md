@@ -2,7 +2,7 @@
 
 Safe Rust bindings for [Rill](https://github.com/SimaoMoreira5228/rill), a media extractor and downloader.
 
-The crate wraps the `librill` C ABI. When no library is found, the build script compiles the bundled Crystal source, so `cargo build` works without a separate native build step. That path needs Crystal 1.22 or newer, Meson, Ninja, and network access for the pinned QuickJS-NG subproject.
+The crate wraps the `librill` C ABI. When no library is found, the build script compiles the bundled Crystal source, so `cargo build` works without a separate native build step. That path needs Crystal 1.22 or newer, Meson, and Ninja. The QuickJS-NG source is bundled in the crate.
 
 To reuse an existing build:
 

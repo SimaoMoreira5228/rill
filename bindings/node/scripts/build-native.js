@@ -36,7 +36,7 @@ const buildDir = path.join(root, "build");
 if (!fs.existsSync(path.join(buildDir, "build.ninja"))) {
   const setup = spawnSync(
     meson,
-    ["setup", "build", "--buildtype=release", "-Dmedia=false"],
+    ["setup", "build", "--buildtype=release", "-Dmedia=false", "-Dtests=false"],
     { cwd: root, stdio: "inherit" },
   );
 
