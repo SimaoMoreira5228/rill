@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/time.h>
 #include <unistd.h>
 
 #include "rill.h"
@@ -109,6 +110,33 @@ static void test_download_cancel(const char *url, const char *output) {
   rill_download_free(download);
 }
 
+static void test_shutdown_cancels_download(const char *url, const char *output) {
+  char *error = NULL;
+  rill_download *download = rill_download_start(
+      url, output, "{\"overwrite\":true}", &error);
+  assert(download != NULL);
+  assert(error == NULL);
+
+  usleep(100000);
+
+  struct timeval before;
+  struct timeval after;
+  gettimeofday(&before, NULL);
+  assert(rill_shutdown() == RILL_OK);
+  gettimeofday(&after, NULL);
+
+  double elapsed = (after.tv_sec - before.tv_sec) +
+                   (after.tv_usec - before.tv_usec) / 1000000.0;
+  assert(elapsed < 5.0);
+
+  int state = -1;
+  int64_t downloaded = 0;
+  int64_t total = 0;
+  assert(rill_download_poll(download, &state, &downloaded, &total) == RILL_OK);
+  assert(state == RILL_DOWNLOAD_CANCELLED);
+  rill_download_free(download);
+}
+
 static void *shutdown_worker(void *argument) {
   (void)argument;
 
@@ -207,6 +235,7 @@ int main(void) {
 
   if (slow_url && cancel_output) {
     test_download_cancel(slow_url, cancel_output);
+    test_shutdown_cancels_download(slow_url, cancel_output);
   }
 
   pthread_t stoppers[4];

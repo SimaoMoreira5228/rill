@@ -20,11 +20,17 @@ module Rill::CAPI::WorkerPool
   MAX_WORKERS = 64
 
   @@pool : Pool?
+  @@shutting_down = Atomic(Bool).new(false)
 
   def start(worker_count : Int32) : Nil
+    @@shutting_down.set(false)
     pool = Pool.new(worker_count)
     @@pool = pool
     pool.start
+  end
+
+  def shutting_down? : Bool
+    @@shutting_down.get
   end
 
   def create_job(url : UInt8*, options_json : UInt8*) : JobPtr
@@ -73,6 +79,7 @@ module Rill::CAPI::WorkerPool
   end
 
   def shutdown : Nil
+    @@shutting_down.set(true)
     pool = @@pool
     @@pool = nil
     pool.try(&.shutdown)
@@ -187,7 +194,9 @@ module Rill::CAPI::WorkerPool
 
     private def process_download(job : JobPtr) : Nil
       Job.mark_running(job)
-      cancellation = Cancellation.watch { job.value.cancel_requested != 0 }
+      cancellation = Cancellation.watch do
+        job.value.cancel_requested != 0 || WorkerPool.shutting_down?
+      end
       cancellation.check!
 
       options = DownloadOptions.from_json(optional_string(job.value.options_json))
