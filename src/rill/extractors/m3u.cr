@@ -2,6 +2,7 @@ require "uri"
 
 require "../errors"
 require "../extractor"
+require "../http_url"
 require "../media"
 require "../playlist"
 
@@ -52,7 +53,7 @@ module Rill::Extractors
         elsif line.starts_with?('#')
           next
         else
-          if entry_url = resolve_url(line, base_url)
+          if entry_url = HttpUrl.resolve(base_url, line)
             entries << PlaylistEntry.new(url: entry_url, title: pending_title)
           end
           pending_title = nil
@@ -68,16 +69,6 @@ module Rill::Extractors
 
       title = title.strip
       title.empty? ? nil : title
-    end
-
-    private def resolve_url(value : String, base_url : URI) : URI?
-      uri = base_url.resolve(value)
-      return nil unless uri.scheme == "http" || uri.scheme == "https"
-      return nil if uri.host.nil?
-
-      uri
-    rescue URI::Error
-      nil
     end
 
     private def title_for(url : URI) : String
