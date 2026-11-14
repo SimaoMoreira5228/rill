@@ -165,7 +165,8 @@ jobs:
 
           ./bin/rill.exe --version
           ./bin/rill.exe extract "https://example.com/clip.mp4" > /dev/null
-          ./build/rill-media.exe --help > /dev/null
+          media_help=$(./build/rill-media.exe --help 2>&1 || true)
+          [[ "$media_help" == Usage:* ]]
 
           cat > build/abi_test.c <<'EOF'
           #include <stdio.h>
