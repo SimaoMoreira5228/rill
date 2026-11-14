@@ -11,11 +11,12 @@ require "../playlist"
 
 module Rill::Extractors
   class SoundCloud < Extractor
-    TRACK_PATH = %r{\A/([^/]+)/([^/]+)/?\z}
-    SET_PATH   = %r{\A/([^/]+)/sets/([^/]+)/?\z}
-    SHORT_PATH = %r{\A/([^/]+)/?\z}
-    HYDRATION  = /window\.__sc_hydration\s*=\s*(\[.*?\]);/m
-    ISO_DATE   = /\A\d{4}-\d{2}-\d{2}/
+    DEFAULT_API_BASE = "https://api-v2.soundcloud.com"
+    TRACK_PATH       = %r{\A/([^/]+)/([^/]+)/?\z}
+    SET_PATH         = %r{\A/([^/]+)/sets/([^/]+)/?\z}
+    SHORT_PATH       = %r{\A/([^/]+)/?\z}
+    HYDRATION        = /window\.__sc_hydration\s*=\s*(\[.*?\]);/m
+    ISO_DATE         = /\A\d{4}-\d{2}-\d{2}/
 
     RESERVED_SEGMENTS = %w(
       albums artists charts comments creators discover download followers
@@ -28,6 +29,10 @@ module Rill::Extractors
       "abr_sq"   => 20,
       "aac_96k"  => 10,
     }
+
+    def initialize(@api_base : String = DEFAULT_API_BASE)
+      @api_base = @api_base.rstrip('/')
+    end
 
     def name : String
       "soundcloud"
@@ -51,7 +56,7 @@ module Rill::Extractors
       page_url = response.url
 
       if set_path?(page_url.path)
-        return extract_set(page_url, response.body)
+        return extract_set(page_url, response.body, client)
       end
 
       unless track_path?(page_url.path)
@@ -168,7 +173,7 @@ module Rill::Extractors
       nil
     end
 
-    private def extract_set(page_url : URI, body : String) : Playlist
+    private def extract_set(page_url : URI, body : String, client : HTTPClient) : Playlist
       hydration = hydration_entries(body, page_url)
       playlist = hydration_data(hydration, "playlist", page_url)
       title = JsonValue.string(playlist["title"]?)
@@ -176,11 +181,7 @@ module Rill::Extractors
         raise MediaUnavailableError.new(page_url.to_s, "set title is missing")
       end
 
-      tracks = playlist["tracks"]?.try(&.as_a?)
-      unless tracks
-        raise MediaUnavailableError.new(page_url.to_s, "set has no tracks")
-      end
-
+      tracks = complete_tracks(client, hydration, playlist, page_url)
       if tracks.empty?
         raise MediaUnavailableError.new(page_url.to_s, "set has no tracks")
       end
@@ -198,6 +199,112 @@ module Rill::Extractors
         extractor: name,
         entries: entries,
       )
+    end
+
+    private def complete_tracks(
+      client : HTTPClient,
+      hydration : Array(JSON::Any),
+      playlist : Hash(String, JSON::Any),
+      page_url : URI,
+    ) : Array(JSON::Any)
+      tracks = tracks_from(playlist)
+      total = JsonValue.integer(playlist["track_count"]?)
+      if total && tracks.size < total
+        if expanded = playlist_tracks(client, hydration, playlist)
+          tracks = expanded
+        end
+      end
+
+      fill_tracks(client, hydration, playlist, tracks)
+    end
+
+    private def tracks_from(playlist : Hash(String, JSON::Any)) : Array(JSON::Any)
+      if value = playlist["tracks"]?
+        if list = value.as_a?
+          return list
+        end
+      end
+
+      [] of JSON::Any
+    end
+
+    private def playlist_tracks(
+      client : HTTPClient,
+      hydration : Array(JSON::Any),
+      playlist : Hash(String, JSON::Any),
+    ) : Array(JSON::Any)?
+      id = JsonValue.string(playlist["id"]?)
+      client_id = api_client_id(hydration)
+      return nil unless id && client_id
+
+      endpoint = URI.parse("#{@api_base}/playlists/#{URI.encode_path_segment(id)}")
+      endpoint.query = URI::Params.encode({"client_id" => client_id})
+      payload = JSON.parse(client.get(endpoint).body)
+      payload["tracks"]?.try(&.as_a?)
+    rescue Rill::Error | JSON::ParseException
+      nil
+    end
+
+    private def fill_tracks(
+      client : HTTPClient,
+      hydration : Array(JSON::Any),
+      playlist : Hash(String, JSON::Any),
+      tracks : Array(JSON::Any),
+    ) : Array(JSON::Any)
+      missing = {} of Int32 => String
+      tracks.each_with_index do |value, index|
+        track = value.as_h?
+        next unless track
+        next if JsonValue.string(track["permalink_url"]?)
+
+        id = JsonValue.string(track["id"]?)
+        missing[index] = id if id
+      end
+      return tracks if missing.empty?
+
+      client_id = api_client_id(hydration)
+      playlist_id = JsonValue.string(playlist["id"]?)
+      return tracks unless client_id && playlist_id
+
+      complete = tracks.dup
+      missing.values.each_slice(50) do |ids|
+        fetched = fetch_tracks(client, ids, client_id, playlist_id)
+        next unless fetched
+
+        by_id = {} of String => JSON::Any
+        fetched.each do |value|
+          track = value.as_h?
+          next unless track
+
+          id = JsonValue.string(track["id"]?)
+          by_id[id] = value if id
+        end
+
+        missing.each do |index, id|
+          if replacement = by_id[id]?
+            complete[index] = replacement
+          end
+        end
+      end
+
+      complete
+    end
+
+    private def fetch_tracks(
+      client : HTTPClient,
+      ids : Array(String),
+      client_id : String,
+      playlist_id : String,
+    ) : Array(JSON::Any)?
+      endpoint = URI.parse("#{@api_base}/tracks")
+      endpoint.query = URI::Params.encode({
+        "ids"        => ids.join(","),
+        "client_id"  => client_id,
+        "playlistId" => playlist_id,
+      })
+      JSON.parse(client.get(endpoint).body).as_a?
+    rescue Rill::Error | JSON::ParseException
+      nil
     end
 
     private def playlist_entries(

@@ -273,6 +273,120 @@ describe Rill::Extractors::SoundCloud do
     end
   end
 
+  it "fetches complete set tracks when hydration is partial" do
+    page = <<-HTML
+      <script>window.__sc_hydration = [
+        {"hydratable": "apiClient", "data": {"id": "fixture-client-id"}},
+        {
+          "hydratable": "playlist",
+          "data": {
+            "id": 222,
+            "title": "Partial Set",
+            "track_count": 2,
+            "tracks": [
+              {
+                "id": 1,
+                "title": "One",
+                "permalink_url": "https://soundcloud.com/artist/one"
+              }
+            ]
+          }
+        }
+      ];</script>
+      HTML
+
+    api_body = <<-JSON
+      {
+        "tracks": [
+          {
+            "id": 1,
+            "title": "One",
+            "permalink_url": "https://soundcloud.com/artist/one"
+          },
+          {
+            "id": 2,
+            "title": "Two",
+            "permalink_url": "https://soundcloud.com/artist/two"
+          }
+        ]
+      }
+      JSON
+
+    server = TestHTTPServer.new
+    server.on("/party/sets/partial") { |_, response| response.print(page) }
+    server.on("/playlists/222") { |_, response| response.print(api_body) }
+    server.start
+
+    begin
+      playlist = Rill::Extractors::SoundCloud.new(server.url).extract(
+        URI.parse("#{server.url}/party/sets/partial"),
+        Rill::HTTPClient.new,
+      ).as(Rill::Playlist)
+
+      playlist.entries.map(&.title).should eq(["One", "Two"])
+
+      request = server.requests.find { |item| item.path == "/playlists/222" }
+      request.not_nil!.query_params["client_id"].should eq("fixture-client-id")
+    ensure
+      server.close
+    end
+  end
+
+  it "fills placeholder set tracks from the tracks endpoint" do
+    page = <<-HTML
+      <script>window.__sc_hydration = [
+        {"hydratable": "apiClient", "data": {"id": "fixture-client-id"}},
+        {
+          "hydratable": "playlist",
+          "data": {
+            "id": 333,
+            "title": "Placeholder Set",
+            "track_count": 2,
+            "tracks": [
+              {
+                "id": 1,
+                "title": "One",
+                "permalink_url": "https://soundcloud.com/artist/one"
+              },
+              {"id": 2}
+            ]
+          }
+        }
+      ];</script>
+      HTML
+
+    api_body = <<-JSON
+      [
+        {
+          "id": 2,
+          "title": "Two",
+          "permalink_url": "https://soundcloud.com/artist/two"
+        }
+      ]
+      JSON
+
+    server = TestHTTPServer.new
+    server.on("/party/sets/placeholders") { |_, response| response.print(page) }
+    server.on("/tracks") { |_, response| response.print(api_body) }
+    server.start
+
+    begin
+      playlist = Rill::Extractors::SoundCloud.new(server.url).extract(
+        URI.parse("#{server.url}/party/sets/placeholders"),
+        Rill::HTTPClient.new,
+      ).as(Rill::Playlist)
+
+      playlist.entries.map(&.title).should eq(["One", "Two"])
+
+      request = server.requests.find { |item| item.path == "/tracks" }
+      request = request.not_nil!
+      request.query_params["ids"].should eq("2")
+      request.query_params["playlistId"].should eq("333")
+    ensure
+      server.close
+    end
+  end
+
   it "reports tracks without transcodings as unavailable" do
     body = <<-HTML
       <script>window.__sc_hydration = [
