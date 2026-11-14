@@ -52,17 +52,14 @@ jobs:
         if: runner.os == 'Windows'
         uses: ilammy/msvc-dev-cmd@v1
 
-      - name: Windows linker path
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          $link = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\*\*\VC\Tools\MSVC\*\bin\HostX64\x64\link.exe" -ErrorAction Stop | Select-Object -First 1
-          $env:Path = "$($link.DirectoryName);$env:Path"
-          "PATH=$env:Path" | Out-File -FilePath $env:GITHUB_ENV -Append
-
       - name: Build native library, CLI, and static media helper
         shell: bash
         run: |
+          if [[ "${RUNNER_OS:-}" == "Windows" ]]; then
+            link_dir=$(dirname "$(find "/c/Program Files/Microsoft Visual Studio" -path '*/HostX64/x64/link.exe' -print -quit)")
+            export PATH="$link_dir:$PATH"
+          fi
+
           make media-helper
           make lib
           make cli
