@@ -5,3 +5,9 @@ option(
   value: 'subproject',
   description: 'Build the pinned FFmpeg subproject or use system libraries',
 )
+option(
+  'media',
+  type: 'boolean',
+  value: true,
+  description: 'Build the rill-media helper',
+)

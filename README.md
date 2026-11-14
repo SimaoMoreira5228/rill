@@ -37,33 +37,34 @@ HLS, DASH, M3U playlists, and direct media URLs are handled without a site extra
 You need Crystal 1.22 or newer plus the libraries Crystal normally links against (`libxml2`, OpenSSL, pcre2, libgc, libyaml, and zlib).
 
 ```sh
-make cli
-make lib
+meson setup build --buildtype=release
+meson compile -C build rill librill
 ```
 
-`make lib` produces `build/librill.so` on Linux, `build/librill.dylib` on macOS, or `build/rill.dll` on Windows.
+The build produces `build/rill` and `build/librill.so` on Linux, `build/librill.dylib` on macOS, or `build/rill.exe` and `build/rill.dll` on Windows.
 
 The prebuilt Windows CLI and SDK archives include the Crystal and Visual C++ runtime DLLs.
 
 Merging separate video and audio streams needs FFmpeg. The default build uses a pinned Meson subproject:
 
 ```sh
-make media-helper
+meson compile -C build rill-media
 ```
 
 To use system FFmpeg libraries instead:
 
 ```sh
-make media-helper-system
+meson setup build-system -Dffmpeg=system
+meson compile -C build-system rill-media
 ```
 
 ## CLI
 
 ```sh
-./bin/rill extract https://www.youtube.com/watch?v=dQw4w9WgXcQ
-./bin/rill formats https://clips.twitch.tv/FaintLightGullWholeWheat
-./bin/rill download https://archive.org/details/BigBuckBunny_124
-./bin/rill download --audio --directory downloads https://soundcloud.com/forss/flickermood
+./build/rill extract https://www.youtube.com/watch?v=dQw4w9WgXcQ
+./build/rill formats https://clips.twitch.tv/FaintLightGullWholeWheat
+./build/rill download https://archive.org/details/BigBuckBunny_124
+./build/rill download --audio --directory downloads https://soundcloud.com/forss/flickermood
 ```
 
 `extract` and `formats` accept `--json`. Downloads support format selection, output paths, resume, playlists, and cancellation with Ctrl-C.
@@ -87,16 +88,10 @@ The Node and Bun packages are released with prebuilt native directories for each
 ## Tests
 
 ```sh
-crystal spec
-make test-c-api
-make test-cpp
-make test-rust
-make test-bun
-make test-node
-make check-targets
+meson test -C build
 ```
 
-`make check-targets` type-checks the CLI and C ABI for the promised Linux, macOS, and Windows targets. It does not replace running the bindings on those systems.
+`meson test -C build targets` type-checks the CLI and C ABI for the promised Linux, macOS, and Windows targets. It does not replace running the bindings on those systems.
 
 ## License
 

@@ -2,6 +2,7 @@ require "uri"
 
 require "./rill/version"
 require "./rill/errors"
+require "./rill/javascript"
 require "./rill/request_options"
 require "./rill/http_client"
 require "./rill/format"

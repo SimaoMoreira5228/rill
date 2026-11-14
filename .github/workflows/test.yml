@@ -16,37 +16,26 @@ jobs:
       - name: Install system libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgc-dev libssl-dev libxml2-dev libyaml-dev libpcre2-dev zlib1g-dev ffmpeg
+          sudo apt-get install -y libgc-dev libssl-dev libxml2-dev libyaml-dev libpcre2-dev zlib1g-dev ffmpeg ninja-build pipx
+          pipx install meson
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
 
       - name: Format
         run: |
           crystal tool format --check src spec
           cargo fmt --all -- --check
 
-      - name: Crystal specs
-        run: crystal spec
+      - name: Configure
+        run: meson setup build --buildtype=release
 
-      - name: Native library
-        run: make lib
-
-      - name: C, C++, and Rust bindings
-        run: |
-          make test-c-api
-          make test-cpp
-          make test-rust
-          make test-rust RUST_FEATURES="--features tokio"
-
-      - name: Cross-target checks
-        run: make check-targets
+      - name: Build
+        run: meson compile -C build rill-media librill rill
 
       - uses: actions/setup-node@v4
         with:
           node-version: 22
 
-      - name: Node binding
-        run: make test-node
-
       - uses: oven-sh/setup-bun@v2
 
-      - name: Bun binding
-        run: make test-bun
+      - name: Test
+        run: meson test -C build --print-errorlogs

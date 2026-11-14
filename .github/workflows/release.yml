@@ -45,7 +45,6 @@ jobs:
       - name: Windows dependencies
         if: runner.os == 'Windows'
         run: |
-          choco install make -y --no-progress
           python -m pip install meson ninja
 
       - name: Windows toolchain
@@ -60,9 +59,8 @@ jobs:
             export PATH="$link_dir:$PATH"
           fi
 
-          make media-helper
-          make lib
-          make cli
+          meson setup build --buildtype=release
+          meson compile -C build rill-media librill rill
 
       - name: Package CLI and SDK archives
         shell: bash
@@ -77,10 +75,10 @@ jobs:
           mkdir -p "dist/cli-$key/bin" "dist/cli-$key/lib" "dist/sdk-$key/bin" "dist/sdk-$key/include" "dist/sdk-$key/bindings/cpp" "dist/sdk-$key/lib"
 
           if [[ "$key" == win32-* ]]; then
-            rill_bin="bin/rill.exe"
+            rill_bin="build/rill.exe"
             helper="build/rill-media.exe"
           else
-            rill_bin="bin/rill"
+            rill_bin="build/rill"
             helper="build/rill-media"
           fi
 
@@ -187,10 +185,10 @@ jobs:
           test -f "dist/cli-$RILL_PLATFORM_KEY/bin/vcruntime140.dll"
           test -f "dist/cli-$RILL_PLATFORM_KEY/bin/vcruntime140_1.dll"
 
-          ./bin/rill.exe --version
-          ./bin/rill.exe extract "https://example.com/clip.mp4" > /dev/null
+          ./build/rill.exe --version
+          ./build/rill.exe extract "https://example.com/clip.mp4" > /dev/null
 
-          if ./bin/rill.exe extract "https://www.youtube.com/watch?v=dQw4w9WgXcQ" > /dev/null 2>&1; then
+          if ./build/rill.exe extract "https://www.youtube.com/watch?v=dQw4w9WgXcQ" > /dev/null 2>&1; then
             echo "youtube extraction: ok"
           else
             echo "warning: youtube extraction failed on Windows" >&2
