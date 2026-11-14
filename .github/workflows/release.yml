@@ -161,8 +161,7 @@ jobs:
         if: runner.os == 'Windows'
         shell: bash
         run: |
-          link_dir=$(dirname "$(find "/c/Program Files/Microsoft Visual Studio" -path '*/HostX64/x64/link.exe' -print -quit)")
-          export PATH="$link_dir:$PATH"
+          set -x
 
           ./bin/rill.exe --version
           ./bin/rill.exe extract "https://example.com/clip.mp4" > /dev/null
@@ -177,7 +176,13 @@ jobs:
             return 0;
           }
           EOF
-          cl /nologo /Iinclude /Fo:build/abi_test.obj /Fe:build/abi_test.exe build/abi_test.c /link /LIBPATH:build rill.lib
+
+          cat > build/abi_test.bat <<'EOF'
+          @echo off
+          cl /nologo /Iinclude /Fo:build\abi_test.obj /Fe:build\abi_test.exe build\abi_test.c /link /LIBPATH:build rill.lib
+          EOF
+
+          cmd //c build\\abi_test.bat
           ./build/abi_test.exe
 
           (cd bindings/node && node smoke.js)
