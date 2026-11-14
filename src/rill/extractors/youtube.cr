@@ -87,6 +87,27 @@ module Rill::Extractors
 
     CLIENTS = {VISIONOS, TV_SAMSUNG}
 
+    SEARCH_CLIENT = PlayerClient.new(
+      "web",
+      "1",
+      "2.20260707.01.00",
+      "Mozilla/5.0",
+      {"clientName" => "WEB"},
+    )
+
+    struct SearchResult
+      getter video_id : String
+      getter title : String
+      getter duration_seconds : Float64?
+
+      def initialize(
+        @video_id : String,
+        @title : String,
+        @duration_seconds : Float64? = nil,
+      )
+      end
+    end
+
     def initialize(@api_base : String = DEFAULT_API_BASE)
     end
 
@@ -143,6 +164,111 @@ module Rill::Extractors
       end
 
       raise MediaUnavailableError.new(url.to_s, errors.uniq.join("; "))
+    end
+
+    def search(query : String, client : HTTPClient, limit : Int32 = 5) : Array(SearchResult)
+      body = JSON.build do |json|
+        json.object do
+          json.field "context" do
+            json.object do
+              json.field "client" do
+                json.object do
+                  json.field "clientName", SEARCH_CLIENT.context["clientName"]
+                  json.field "clientVersion", SEARCH_CLIENT.version
+                  json.field "hl", "en"
+                  json.field "gl", "US"
+                end
+              end
+            end
+          end
+          json.field "query", query
+          json.field "params", "EgIQAQ%3D%3D"
+        end
+      end
+
+      headers = HTTP::Headers.new
+      headers["User-Agent"] = SEARCH_CLIENT.user_agent
+      headers["X-YouTube-Client-Name"] = SEARCH_CLIENT.identifier
+      headers["X-YouTube-Client-Version"] = SEARCH_CLIENT.version
+      headers["Origin"] = @api_base
+      headers["Referer"] = "#{@api_base}/"
+
+      endpoint = "#{@api_base}/youtubei/v1/search?key=#{API_KEY}&prettyPrint=false"
+      response = client.post(endpoint, body, headers)
+      payload = JSON.parse(response.body)
+
+      results = [] of SearchResult
+      collect_search_results(payload, results, limit)
+      results
+    rescue JSON::ParseException
+      raise MediaUnavailableError.new("#{@api_base}/", "search response is not valid JSON")
+    rescue ex : HTTPError
+      raise MediaUnavailableError.new("#{@api_base}/", "search request failed (#{ex.status.code})")
+    end
+
+    private def collect_search_results(
+      value : JSON::Any,
+      results : Array(SearchResult),
+      limit : Int32,
+    ) : Nil
+      return if results.size >= limit
+
+      if hash = value.as_h?
+        if renderer = hash["videoRenderer"]?.try(&.as_h?)
+          result = search_result(renderer)
+          results << result if result
+        end
+
+        hash.each_value do |child|
+          collect_search_results(child, results, limit)
+          return if results.size >= limit
+        end
+      elsif array = value.as_a?
+        array.each do |child|
+          collect_search_results(child, results, limit)
+          return if results.size >= limit
+        end
+      end
+    end
+
+    private def search_result(renderer : Hash(String, JSON::Any)) : SearchResult?
+      video_id = scalar_string(renderer["videoId"]?)
+      return nil unless video_id
+
+      title = text_runs(renderer["title"]?) || video_id
+      duration = clock_seconds(text_runs(renderer["lengthText"]?))
+
+      SearchResult.new(video_id, title, duration)
+    end
+
+    private def text_runs(value : JSON::Any?) : String?
+      hash = value.try(&.as_h?)
+      return nil unless hash
+
+      if runs = hash["runs"]?.try(&.as_a?)
+        text = runs.compact_map do |run|
+          run_hash = run.as_h?
+          scalar_string(run_hash.try(&.["text"]?))
+        end.join
+
+        return text unless text.empty?
+      end
+
+      scalar_string(hash["simpleText"]?)
+    end
+
+    private def clock_seconds(value : String?) : Float64?
+      return nil unless value
+
+      parts = value.split(':').map(&.to_i?)
+      return nil if parts.empty? || parts.any?(&.nil?)
+
+      seconds = 0_i64
+      parts.each do |part|
+        seconds = seconds * 60 + part.not_nil!
+      end
+
+      seconds.to_f
     end
 
     private def build_media(

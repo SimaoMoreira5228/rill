@@ -286,6 +286,10 @@ module Rill::CLI
     end
 
     media = result
+    media.warnings.each do |warning|
+      STDERR.puts "warning: #{warning}"
+    end
+
     plan = FormatSelector.plan(media.formats, format_id, preference)
 
     unless plan
@@ -375,6 +379,10 @@ module Rill::CLI
         result = client.extract(entry.url)
         unless result.is_a?(Media)
           raise DownloadError.new("entry is another playlist")
+        end
+
+        result.warnings.each do |warning|
+          STDERR.puts "  warning: #{warning}"
         end
 
         plan = FormatSelector.plan(result.formats, format_id, preference)
@@ -524,6 +532,10 @@ module Rill::CLI
   end
 
   private def self.print_media(media : Media, formats_only : Bool) : Nil
+    media.warnings.each do |warning|
+      STDERR.puts "warning: #{warning}"
+    end
+
     unless formats_only
       puts "Title: #{media.title}"
       puts "Extractor: #{media.extractor}"

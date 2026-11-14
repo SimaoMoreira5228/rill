@@ -132,5 +132,6 @@ describe Rill::Media do
     formats.first["format_id"].should eq("video")
     formats.first["kind"].should eq("video")
     formats.first["container"].should eq("mp4")
+    parsed["warnings"].as_a.should be_empty
   end
 end

@@ -9,6 +9,7 @@ require "./extractors/internet_archive"
 require "./extractors/m3u"
 require "./extractors/media_ccc_de"
 require "./extractors/peer_tube"
+require "./extractors/spotify"
 require "./extractors/youtube"
 require "./http_client"
 require "./playlist"
@@ -22,6 +23,7 @@ module Rill
       registry.register(Extractors::MediaCccDe)
       registry.register(Extractors::PeerTube)
       registry.register(Extractors::YouTube)
+      registry.register(Extractors::Spotify)
       registry.register(Extractors::Hls)
       registry.register(Extractors::Dash)
       registry.register(Extractors::M3u)

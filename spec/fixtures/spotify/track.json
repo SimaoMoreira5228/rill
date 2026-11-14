@@ -1,0 +1,29 @@
+{
+  "props": {
+    "pageProps": {
+      "state": {
+        "data": {
+          "entity": {
+            "type": "track",
+            "name": "Never Gonna Give You Up",
+            "title": "Never Gonna Give You Up",
+            "id": "4cOdK2wGLETKBW3PvgPWqT",
+            "artists": [
+              {"name": "Rick Astley"}
+            ],
+            "releaseDate": {"isoString": "1987-11-12T00:00:00Z"},
+            "duration": 213573,
+            "isPlayable": true,
+            "playabilityReason": "PLAYABLE",
+            "visualIdentity": {
+              "image": [
+                {"url": "https://image.example/cover-300.jpg", "maxWidth": 300},
+                {"url": "https://image.example/cover-640.jpg", "maxWidth": 640}
+              ]
+            }
+          }
+        }
+      }
+    }
+  }
+}

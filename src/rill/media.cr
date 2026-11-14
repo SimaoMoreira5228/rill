@@ -17,6 +17,7 @@ module Rill
     getter upload_date : String?
     getter extractor : String
     getter formats : Array(Format)
+    getter warnings : Array(String)
 
     def initialize(
       @title : String,
@@ -29,6 +30,7 @@ module Rill
       @duration_seconds : Float64? = nil,
       @thumbnail_url : URI? = nil,
       @upload_date : String? = nil,
+      @warnings : Array(String) = [] of String,
     )
     end
 
@@ -63,6 +65,11 @@ module Rill
         json.field "formats" do
           json.array do
             formats.each(&.to_json(json))
+          end
+        end
+        json.field "warnings" do
+          json.array do
+            warnings.each { |warning| json.string(warning) }
           end
         end
       end

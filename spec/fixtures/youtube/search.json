@@ -1,0 +1,32 @@
+{
+  "contents": {
+    "sectionListRenderer": {
+      "contents": [
+        {
+          "itemSectionRenderer": {
+            "contents": [
+              {
+                "videoRenderer": {
+                  "videoId": "dQw4w9WgXcQ",
+                  "title": {
+                    "runs": [
+                      {"text": "Rick Astley - Never Gonna Give You Up (Official Video)"}
+                    ]
+                  },
+                  "lengthText": {"simpleText": "3:34"}
+                }
+              },
+              {
+                "videoRenderer": {
+                  "videoId": "wrongMatch",
+                  "title": {"runs": [{"text": "A cover"}]},
+                  "lengthText": {"simpleText": "4:10"}
+                }
+              }
+            ]
+          }
+        }
+      ]
+    }
+  }
+}
