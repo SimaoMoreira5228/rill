@@ -1,0 +1,9 @@
+{
+  "name": "@rill/bun",
+  "version": "2026.11.14",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "test": "bun run smoke.ts"
+  }
+}
