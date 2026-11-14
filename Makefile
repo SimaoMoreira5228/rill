@@ -15,7 +15,7 @@ UNAME_S := $(shell uname -s)
 ifeq ($(OS),Windows_NT)
 EXE := .exe
 HELPER := rill-media.exe
-SHARED_FLAGS := /DLL /DEF:$(CURDIR)/csrc/rill.def /IMPLIB:$(CURDIR)/build/rill.lib
+SHARED_FLAGS := /DLL /DEF:$(CURDIR)/csrc/rill.def /IMPLIB:$(CURDIR)/build/rill.lib msvcrt.lib
 SHARED_DEFINES := -Dwithout_main
 LIBRARY := build/rill.dll
 C_LINK_FLAGS := -Lbuild -lrill
