@@ -350,6 +350,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgc-dev libssl-dev libxml2-dev libyaml-dev libpcre2-dev zlib1g-dev meson ninja-build
 
+      - name: Fetch QuickJS-NG for the crate package
+        run: meson subprojects download quickjs-ng
+
       - uses: rust-lang/crates-io-auth-action@v1
         id: crates-auth
 
