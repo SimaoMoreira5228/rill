@@ -52,8 +52,9 @@ int rill_abi_version(void);
 // selects one worker. Returns RILL_OK when the pool is ready or already running.
 int rill_init(size_t worker_count);
 
-// Stops the worker pool after in-flight and queued jobs are resolved. Terminal:
-// later calls to rill_init fail. Safe to call more than once.
+// Stops the worker pool. Queued jobs fail with RILL_ERROR_SHUTDOWN, active
+// downloads are cancelled, and in-flight extraction calls finish normally.
+// Terminal: later calls to rill_init fail. Safe to call more than once.
 int rill_shutdown(void);
 
 // Enqueues an extraction. Returns NULL only when the job cannot be allocated.

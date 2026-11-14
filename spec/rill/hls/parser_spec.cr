@@ -8,6 +8,7 @@ describe Rill::Hls::Parser do
   it "parses a master playlist with attributes and relative URIs" do
     playlist = parse_playlist(<<-M3U8).as(Rill::Hls::MultivariantPlaylist)
       #EXTM3U
+      #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud",NAME="English",LANGUAGE="en",DEFAULT=YES,AUTOSELECT=YES,URI="audio/en.m3u8"
       #EXT-X-STREAM-INF:BANDWIDTH=1280000,AVERAGE-BANDWIDTH=1000000,RESOLUTION=640x360,CODECS="avc1.4d401e,mp4a.40.2",AUDIO="aud"
       low/index.m3u8
       #EXT-X-STREAM-INF:BANDWIDTH=2560000,RESOLUTION=1280x720
@@ -29,6 +30,16 @@ describe Rill::Hls::Parser do
     high.width.should eq(1280)
     high.height.should eq(720)
     high.audio_group.should be_nil
+
+    playlist.renditions.size.should eq(1)
+    rendition = playlist.renditions.first
+    rendition.type.should eq("AUDIO")
+    rendition.group_id.should eq("aud")
+    rendition.name.should eq("English")
+    rendition.language.should eq("en")
+    rendition.url.not_nil!.to_s.should eq("https://example.com/path/audio/en.m3u8")
+    rendition.default?.should be_true
+    rendition.autoselect?.should be_true
   end
 
   it "parses a media playlist" do

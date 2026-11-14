@@ -29,7 +29,7 @@ describe Rill::Extractors::Hls do
       media.validate!
 
       media.title.should eq("master")
-      media.formats.size.should eq(1)
+      media.formats.size.should eq(2)
 
       low = media.formats[0]
       low.url.to_s.should eq("#{server.url}/low/index.m3u8")
@@ -38,25 +38,130 @@ describe Rill::Extractors::Hls do
       low.height.should eq(360)
       low.bitrate.should eq(800_000)
       low.note.should eq("avc1.4d401e,mp4a.40.2")
+
+      high = media.formats[1]
+      high.url.to_s.should eq("#{server.url}/high/index.m3u8")
+      high.kind.should eq(Rill::FormatKind::Combined)
+      high.height.should eq(720)
     ensure
       server.close
     end
   end
 
-  it "rejects masters with only separate-audio variants" do
+  it "extracts separate-audio variants" do
     server = TestHTTPServer.new
     server.on("/master.m3u8") do |_, response|
       response.print(<<-M3U8)
         #EXTM3U
-        #EXT-X-STREAM-INF:BANDWIDTH=2400000,RESOLUTION=1280x720,AUDIO="aud"
+        #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud",NAME="English",LANGUAGE="en",DEFAULT=YES,AUTOSELECT=YES,URI="audio/en.m3u8"
+        #EXT-X-STREAM-INF:BANDWIDTH=2400000,RESOLUTION=1280x720,AUDIO="aud",CODECS="avc1.4d401f"
         high/index.m3u8
+      M3U8
+    end
+    server.on("/high/index.m3u8") do |_, response|
+      response.print(<<-M3U8)
+        #EXTM3U
+        #EXT-X-MAP:URI="init.mp4"
+        #EXTINF:4,
+        seg0.m4s
+        #EXT-X-ENDLIST
+      M3U8
+    end
+    server.on("/audio/en.m3u8") do |_, response|
+      response.print(<<-M3U8)
+        #EXTM3U
+        #EXT-X-MAP:URI="init.mp4"
+        #EXTINF:4,
+        seg0.m4s
+        #EXT-X-ENDLIST
       M3U8
     end
     server.start
 
     begin
-      extractor = Rill::Extractors::Hls.new
-      expect_raises(Rill::UnsupportedManifestError, /separate audio/) do
+      media = extractor.extract(URI.parse("#{server.url}/master.m3u8"), Rill::HTTPClient.new)
+      media.validate!
+
+      media.formats.size.should eq(2)
+
+      video = media.formats.find { |format| format.kind == Rill::FormatKind::Video }.not_nil!
+      video.url.to_s.should eq("#{server.url}/high/index.m3u8")
+      video.container.should eq("mp4")
+      video.width.should eq(1280)
+      video.height.should eq(720)
+
+      audio = media.formats.find { |format| format.kind == Rill::FormatKind::Audio }.not_nil!
+      audio.url.to_s.should eq("#{server.url}/audio/en.m3u8")
+      audio.container.should eq("mp4")
+      audio.language.should eq("en")
+      audio.note.should eq("English")
+
+      plan = Rill::FormatSelector.plan(media.formats).not_nil!
+      plan.stream.format_id.should eq("hls-1")
+      plan.audio.not_nil!.format_id.should eq("audio-1")
+    ensure
+      server.close
+    end
+  end
+
+  it "selects the default audio rendition and warns about alternates" do
+    server = TestHTTPServer.new
+    server.on("/master.m3u8") do |_, response|
+      response.print(<<-M3U8)
+        #EXTM3U
+        #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud",NAME="English",LANGUAGE="en",DEFAULT=YES,AUTOSELECT=YES,URI="audio/en.m3u8"
+        #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud",NAME="French",LANGUAGE="fr",DEFAULT=NO,AUTOSELECT=YES,URI="audio/fr.m3u8"
+        #EXT-X-STREAM-INF:BANDWIDTH=2400000,RESOLUTION=1280x720,AUDIO="aud"
+        high/index.m3u8
+      M3U8
+    end
+    server.on("/high/index.m3u8") do |_, response|
+      response.print(<<-M3U8)
+        #EXTM3U
+        #EXT-X-MAP:URI="init.mp4"
+        #EXTINF:4,
+        seg0.m4s
+        #EXT-X-ENDLIST
+      M3U8
+    end
+    server.start
+
+    begin
+      media = extractor.extract(URI.parse("#{server.url}/master.m3u8"), Rill::HTTPClient.new)
+
+      media.warnings.should contain("only default audio renditions are exposed")
+
+      audio = media.formats.find { |format| format.kind == Rill::FormatKind::Audio }.not_nil!
+      audio.url.to_s.should eq("#{server.url}/audio/en.m3u8")
+      audio.language.should eq("en")
+    ensure
+      server.close
+    end
+  end
+
+  it "rejects separate audio when the container cannot be detected" do
+    server = TestHTTPServer.new
+    server.on("/master.m3u8") do |_, response|
+      response.print(<<-M3U8)
+        #EXTM3U
+        #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud",NAME="English",URI="audio/en.m3u8"
+        #EXT-X-STREAM-INF:BANDWIDTH=2400000,RESOLUTION=1280x720,AUDIO="aud"
+        high/index.m3u8
+      M3U8
+    end
+    server.on("/audio/en.m3u8") do |_, response|
+      response.print(<<-M3U8)
+        #EXTM3U
+        #EXT-X-MAP:URI="init.mp4"
+        #EXTINF:4,
+        seg0.m4s
+        #EXT-X-ENDLIST
+      M3U8
+    end
+    server.start
+
+    begin
+      expect_raises(Rill::UnsupportedManifestError, /cannot determine HLS container/) do
         extractor.extract(URI.parse("#{server.url}/master.m3u8"), Rill::HTTPClient.new)
       end
     ensure

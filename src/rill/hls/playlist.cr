@@ -47,6 +47,27 @@ module Rill::Hls
     end
   end
 
+  struct Rendition
+    getter type : String
+    getter group_id : String?
+    getter name : String?
+    getter language : String?
+    getter url : URI?
+    getter? default : Bool
+    getter? autoselect : Bool
+
+    def initialize(
+      @type : String,
+      @group_id : String? = nil,
+      @name : String? = nil,
+      @language : String? = nil,
+      @url : URI? = nil,
+      @default : Bool = false,
+      @autoselect : Bool = false,
+    )
+    end
+  end
+
   struct MediaPlaylist
     getter segments : Array(Segment)
     getter map_url : URI?
@@ -68,8 +89,12 @@ module Rill::Hls
 
   struct MultivariantPlaylist
     getter variants : Array(Variant)
+    getter renditions : Array(Rendition)
 
-    def initialize(@variants : Array(Variant))
+    def initialize(
+      @variants : Array(Variant),
+      @renditions : Array(Rendition) = [] of Rendition,
+    )
     end
   end
 end

@@ -8,6 +8,73 @@ private def hls_format(url : String) : Rill::Format
   )
 end
 
+private def hls_audio_ffmpeg_available? : Bool
+  Process.run(
+    "ffmpeg",
+    ["-version"],
+    output: Process::Redirect::Close,
+    error: Process::Redirect::Close,
+  ).success?
+rescue File::Error
+  false
+end
+
+private def hls_audio_generate(directory : Path) : Bool
+  video = directory / "video"
+  audio = directory / "audio"
+  Dir.mkdir_p(video)
+  Dir.mkdir_p(audio)
+
+  video_ok = Process.run(
+    "ffmpeg",
+    [
+      "-hide_banner", "-loglevel", "error", "-y",
+      "-f", "lavfi", "-i", "color=c=black:s=160x120:d=2",
+      "-an", "-c:v", "mpeg4", "-g", "25",
+      "-f", "hls", "-hls_time", "1", "-hls_playlist_type", "vod",
+      "-hls_segment_type", "fmp4",
+      "-hls_fmp4_init_filename", "init.mp4",
+      "-hls_segment_filename", (video / "v%03d.m4s").to_s,
+      (video / "video.m3u8").to_s,
+    ],
+    output: Process::Redirect::Close,
+    error: Process::Redirect::Close,
+  ).success?
+
+  audio_ok = Process.run(
+    "ffmpeg",
+    [
+      "-hide_banner", "-loglevel", "error", "-y",
+      "-f", "lavfi", "-i", "sine=frequency=440:duration=2",
+      "-vn", "-c:a", "aac",
+      "-f", "hls", "-hls_time", "1", "-hls_playlist_type", "vod",
+      "-hls_segment_type", "fmp4",
+      "-hls_fmp4_init_filename", "init.mp4",
+      "-hls_segment_filename", (audio / "a%03d.m4s").to_s,
+      (audio / "audio.m3u8").to_s,
+    ],
+    output: Process::Redirect::Close,
+    error: Process::Redirect::Close,
+  ).success?
+
+  video_ok && audio_ok
+end
+
+private def hls_audio_serve(server : TestHTTPServer, prefix : String, directory : Path) : Nil
+  Dir.each_child(directory) do |name|
+    path = directory / name
+    next unless File.file?(path)
+
+    body = File.read(path)
+    content_type = File.extname(name) == ".m3u8" ? "application/vnd.apple.mpegurl" : "video/mp4"
+
+    server.on("#{prefix}/#{name}") do |_, response|
+      response.content_type = content_type
+      response.print(body)
+    end
+  end
+end
+
 describe Rill::Downloader do
   it "downloads HLS segments in order" do
     server = TestHTTPServer.new
@@ -75,6 +142,50 @@ describe Rill::Downloader do
       end
     ensure
       server.close
+    end
+  end
+
+  it "merges HLS video with separate audio" do
+    unless hls_audio_ffmpeg_available?
+      pending "ffmpeg is not installed"
+      next
+    end
+
+    with_temp_dir do |directory|
+      source = directory / "source"
+      Dir.mkdir_p(source)
+      hls_audio_generate(source).should be_true
+
+      server = TestHTTPServer.new
+      hls_audio_serve(server, "/video", source / "video")
+      hls_audio_serve(server, "/audio", source / "audio")
+      server.start
+
+      begin
+        video = Rill::Format.new(
+          format_id: "video",
+          url: URI.parse("#{server.url}/video/video.m3u8"),
+          kind: Rill::FormatKind::Video,
+          protocol: Rill::FormatProtocol::Hls,
+          container: "mp4",
+        )
+        audio = Rill::Format.new(
+          format_id: "audio",
+          url: URI.parse("#{server.url}/audio/audio.m3u8"),
+          kind: Rill::FormatKind::Audio,
+          protocol: Rill::FormatProtocol::Hls,
+          container: "mp4",
+        )
+        target = directory / "merged.mp4"
+
+        downloader.download(Rill::DownloadPlan.new(video, audio), target)
+
+        File.size(target).should be > 0
+        File.exists?(Path.new("#{target}.video")).should be_false
+        File.exists?(Path.new("#{target}.audio")).should be_false
+      ensure
+        server.close
+      end
     end
   end
 

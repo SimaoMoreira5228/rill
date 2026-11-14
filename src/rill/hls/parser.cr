@@ -7,6 +7,7 @@ module Rill::Hls::Parser
   extend self
 
   STREAM_INF = "#EXT-X-STREAM-INF:"
+  MEDIA      = "#EXT-X-MEDIA:"
   EXTINF     = "#EXTINF:"
   KEY        = "#EXT-X-KEY:"
   MAP        = "#EXT-X-MAP:"
@@ -80,11 +81,17 @@ module Rill::Hls::Parser
 
   private def parse_master(lines : Array(String), base_url : URI) : MultivariantPlaylist
     variants = [] of Variant
+    renditions = [] of Rendition
     pending : Hash(String, String)? = nil
 
     lines.each do |line|
       if line.starts_with?(STREAM_INF)
         pending = parse_attributes(line[STREAM_INF.size..])
+        next
+      end
+
+      if line.starts_with?(MEDIA)
+        renditions << build_rendition(parse_attributes(line[MEDIA.size..]), base_url)
         next
       end
 
@@ -99,7 +106,27 @@ module Rill::Hls::Parser
     raise ManifestError.new("HLS master playlist has a dangling stream") if pending
     raise ManifestError.new("HLS master playlist has no variants") if variants.empty?
 
-    MultivariantPlaylist.new(variants)
+    MultivariantPlaylist.new(variants, renditions)
+  end
+
+  private def build_rendition(
+    attributes : Hash(String, String),
+    base_url : URI,
+  ) : Rendition
+    type = attributes["TYPE"]?
+    raise ManifestError.new("HLS media rendition is missing a type") unless type
+
+    uri = attributes["URI"]?
+
+    Rendition.new(
+      type: type.upcase,
+      group_id: attributes["GROUP-ID"]?,
+      name: attributes["NAME"]?,
+      language: attributes["LANGUAGE"]?,
+      url: uri ? resolve(uri, base_url) : nil,
+      default: attributes["DEFAULT"]? == "YES",
+      autoselect: attributes["AUTOSELECT"]? == "YES",
+    )
   end
 
   private def build_variant(
