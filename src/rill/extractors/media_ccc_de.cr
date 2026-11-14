@@ -5,6 +5,7 @@ require "../errors"
 require "../extractor"
 require "../format"
 require "../media"
+require "../mime_type"
 
 module Rill::Extractors
   class MediaCccDe < Extractor
@@ -158,17 +159,17 @@ module Rill::Extractors
         next unless recording_url
 
         mime_type = scalar_string(recording_hash["mime_type"]?) || ""
-        media_type, codecs = parse_mime_type(mime_type)
-        next if media_type.empty?
+        mime = MimeType.parse(mime_type)
+        next if mime.empty?
 
-        audio = media_type.starts_with?("audio/")
+        audio = mime.audio?
         formats << Format.new(
           format_id: filename,
           url: recording_url,
           kind: audio ? FormatKind::Audio : FormatKind::Combined,
-          container: container_for(media_type),
-          video_codec: audio ? nil : codecs,
-          audio_codec: audio ? audio_codec_for(media_type, codecs) : nil,
+          container: mime.container,
+          video_codec: audio ? nil : mime.codecs,
+          audio_codec: audio ? mime.audio_codec : nil,
           width: dimension(recording_hash["width"]?),
           height: dimension(recording_hash["height"]?),
           language: scalar_string(recording_hash["language"]?),
@@ -177,44 +178,6 @@ module Rill::Extractors
       end
 
       formats
-    end
-
-    private def parse_mime_type(value : String) : Tuple(String, String?)
-      parts = value.split(';').map(&.strip)
-      media_type = parts.first?.try(&.downcase) || ""
-
-      codecs = parts.skip(1).compact_map do |part|
-        name, separator, codec = part.partition('=')
-        codec if separator == "=" && name.strip.downcase == "codecs"
-      end.first?
-
-      {media_type, codecs}
-    end
-
-    private def container_for(media_type : String) : String?
-      subtype = media_type.split('/').last?
-      return nil unless subtype
-
-      case subtype
-      when "mpeg"
-        "mp3"
-      else
-        subtype
-      end
-    end
-
-    private def audio_codec_for(media_type : String, codecs : String?) : String?
-      return codecs if codecs
-
-      subtype = media_type.split('/').last?
-      return nil unless subtype
-
-      case subtype
-      when "mpeg"
-        "mp3"
-      else
-        subtype
-      end
     end
 
     private def dimension(value : JSON::Any?) : Int32?

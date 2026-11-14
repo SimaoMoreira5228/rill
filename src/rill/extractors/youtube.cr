@@ -7,6 +7,7 @@ require "../errors"
 require "../extractor"
 require "../format"
 require "../media"
+require "../mime_type"
 
 module Rill::Extractors
   class YouTube < Extractor
@@ -287,17 +288,17 @@ module Rill::Extractors
       return nil unless itag
 
       mime_type = scalar_string(value["mimeType"]?) || ""
-      type, container, codecs = parse_mime_type(mime_type)
-      return nil if type.empty?
+      mime = MimeType.parse(mime_type)
+      return nil if mime.empty?
 
       width = dimension(value["width"]?)
       height = dimension(value["height"]?)
-      has_video = type.starts_with?("video/") && (!width.nil? || !height.nil?)
-      has_audio = type.starts_with?("audio/") ||
+      has_video = mime.video? && (!width.nil? || !height.nil?)
+      has_audio = mime.audio? ||
                   (integer(value["audioChannels"]?) || 0) > 0
       return nil unless has_video || has_audio
 
-      codec_list = codecs.try(&.split(',').map(&.strip).reject(&.empty?)) || [] of String
+      codec_list = mime.codec_list
 
       video_codec = if has_video
                       codec_list.first?
@@ -310,7 +311,7 @@ module Rill::Extractors
         format_id: itag.to_s,
         url: url,
         kind: format_kind(has_video, has_audio),
-        container: container,
+        container: mime.container,
         bitrate: integer(value["bitrate"]?),
         video_codec: video_codec,
         audio_codec: audio_codec,
@@ -371,29 +372,6 @@ module Rill::Extractors
       return nil if value.size < 10
 
       value[0, 10]
-    end
-
-    private def parse_mime_type(value : String) : Tuple(String, String?, String?)
-      parts = value.split(';').map(&.strip)
-      media_type = parts.first?.try(&.downcase) || ""
-      codecs = parts.skip(1).compact_map do |part|
-        name, separator, codec = part.partition('=')
-        next unless separator == "=" && name.strip.downcase == "codecs"
-
-        codec = codec.strip
-        if codec.starts_with?('"') && codec.ends_with?('"')
-          codec = codec[1..-2]
-        end
-        codec
-      end.first?
-
-      subtype = media_type.split('/').last?
-      container = subtype
-      if container == "mpeg"
-        container = "mp3"
-      end
-
-      {media_type, container, codecs}
     end
 
     private def video_id_for(url : URI) : String?
