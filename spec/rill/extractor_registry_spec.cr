@@ -75,6 +75,8 @@ describe Rill::ExtractorRegistry do
       .should eq(Rill::Extractors::Hls)
     registry.extractor_for("https://example.com/list.m3u")
       .should eq(Rill::Extractors::M3u)
+    registry.extractor_for("https://example.com/manifest.mpd")
+      .should eq(Rill::Extractors::Dash)
     registry.extractor_for("https://example.com/watch").should be_nil
   end
 

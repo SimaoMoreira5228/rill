@@ -2,6 +2,7 @@ require "uri"
 
 require "./errors"
 require "./extractor"
+require "./extractors/dash"
 require "./extractors/direct_media"
 require "./extractors/hls"
 require "./extractors/internet_archive"
@@ -22,6 +23,7 @@ module Rill
       registry.register(Extractors::PeerTube)
       registry.register(Extractors::YouTube)
       registry.register(Extractors::Hls)
+      registry.register(Extractors::Dash)
       registry.register(Extractors::M3u)
       registry.register(Extractors::DirectMedia)
       registry

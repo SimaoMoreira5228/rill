@@ -11,6 +11,7 @@ module Rill
   enum FormatProtocol
     Http
     Hls
+    Dash
   end
 
   class Format

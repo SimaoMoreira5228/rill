@@ -4,6 +4,7 @@ require "path"
 require "uri"
 
 require "./cancellation"
+require "./dash/parser"
 require "./download_plan"
 require "./download_progress"
 require "./errors"
@@ -132,6 +133,9 @@ module Rill
       if format.try(&.protocol.hls?)
         remove_part(part_path)
         transfer_hls(url, part_path, cancellation, on_progress)
+      elsif format.try(&.protocol.dash?)
+        remove_part(part_path)
+        transfer_dash(url, part_path, format.not_nil!.format_id, cancellation, on_progress)
       else
         remove_part(part_path) unless @resume
         chunk_size = format.try(&.range_chunk_size)
@@ -355,6 +359,49 @@ module Rill
       {
         408, 425, 429, 500, 502, 503, 504,
       }.includes?(status.code)
+    end
+
+    private def transfer_dash(
+      url : String | URI,
+      part_path : Path,
+      reference : String,
+      cancellation : Cancellation?,
+      on_progress : Proc(DownloadProgress, Nil)?,
+    ) : Nil
+      response = @http.get(url)
+      manifest = Dash::Parser.parse(response.body, response.url)
+      representation = manifest.representations.find { |item| item.reference == reference }
+
+      unless representation
+        raise UnsupportedManifestError.new("DASH representation #{reference} is no longer present")
+      end
+
+      unless representation.supported?
+        raise UnsupportedManifestError.new("DASH representation #{reference} uses unsupported segment information")
+      end
+
+      init_url, segments = representation.expand
+      if segments.empty?
+        raise ManifestError.new("DASH representation #{reference} has no segments")
+      end
+
+      File.open(part_path, "w+b") do |file|
+        writer = ProgressWriter.new(file, part_path.to_s, 0_i64, cancellation, on_progress)
+        writer.emit(force: true)
+
+        if init_url
+          @http.stream_to(init_url, writer)
+        end
+
+        segments.each do |segment|
+          @http.stream_to(segment.url, writer)
+        end
+
+        writer.emit(force: true)
+      end
+    rescue ex : Rill::Error | IO::Error
+      remove_part(part_path)
+      raise ex
     end
 
     private def transfer_hls(
