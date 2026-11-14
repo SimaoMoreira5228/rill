@@ -16,7 +16,7 @@ jobs:
       - name: Install system libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgc-dev libssl-dev libxml2-dev libyaml-dev libpcre2-dev zlib1g-dev
+          sudo apt-get install -y libgc-dev libssl-dev libxml2-dev libyaml-dev libpcre2-dev zlib1g-dev ffmpeg
 
       - name: Format
         run: |

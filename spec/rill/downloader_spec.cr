@@ -346,14 +346,18 @@ describe Rill::Downloader do
   end
 
   it "downloads and merges a split video and audio plan" do
-    unless Process.run(
-             "ffmpeg",
-             ["-version"],
-             output: Process::Redirect::Close,
-             error: Process::Redirect::Close,
-           ).success?
-      pending! "ffmpeg is not installed"
+    available = begin
+      Process.run(
+        "ffmpeg",
+        ["-version"],
+        output: Process::Redirect::Close,
+        error: Process::Redirect::Close,
+      ).success?
+    rescue File::NotFoundError
+      false
     end
+
+    pending! "ffmpeg is not installed" unless available
 
     with_temp_dir do |directory|
       video_path = directory / "input.mp4"

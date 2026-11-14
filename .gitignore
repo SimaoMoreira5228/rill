@@ -18,3 +18,4 @@ bindings/node/LICENSE
 bindings/node/NOTICE
 bindings/bun/LICENSE
 bindings/bun/NOTICE
+bindings/rust/target/
