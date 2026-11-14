@@ -1,6 +1,14 @@
 require "./download_plan"
 require "./format"
 
+module Rill
+  enum FormatPreference
+    AudioAndVideo
+    AudioOnly
+    VideoOnly
+  end
+end
+
 module Rill::FormatSelector
   extend self
 
@@ -26,7 +34,11 @@ module Rill::FormatSelector
     best_audio(formats)
   end
 
-  def plan(formats : Array(Format), format_id : String? = nil) : DownloadPlan?
+  def plan(
+    formats : Array(Format),
+    format_id : String? = nil,
+    preference : FormatPreference = FormatPreference::AudioAndVideo,
+  ) : DownloadPlan?
     return nil if formats.empty?
 
     if format_id
@@ -36,19 +48,51 @@ module Rill::FormatSelector
       return plan_for(selected, formats)
     end
 
+    case preference
+    when .audio_only?
+      audio = best_audio_only(formats)
+      audio ? DownloadPlan.new(audio) : nil
+    when .video_only?
+      video = best_video_only(formats)
+      video ? DownloadPlan.new(video) : nil
+    else
+      audio_and_video_plan(formats)
+    end
+  end
+
+  private def audio_and_video_plan(formats : Array(Format)) : DownloadPlan?
     combined = formats.select { |format| format.kind == FormatKind::Combined }
     unless combined.empty?
       return DownloadPlan.new(best_video(combined))
     end
 
-    video = formats.select { |format| format.kind == FormatKind::Video }
-    unless video.empty?
-      primary = best_video(video)
-      return DownloadPlan.new(primary, best_audio_for(primary, formats))
+    video = best_video_only(formats)
+    unless video.nil?
+      return DownloadPlan.new(video, best_audio_for(video, formats))
     end
 
-    audio = best_audio(formats)
+    audio = best_audio_only(formats)
     audio ? DownloadPlan.new(audio) : nil
+  end
+
+  private def best_video_only(formats : Array(Format)) : Format?
+    video = formats.select { |format| format.kind == FormatKind::Video }
+    return nil if video.empty?
+
+    best_video(video)
+  end
+
+  private def best_audio_only(formats : Array(Format)) : Format?
+    audio = formats.select { |format| format.kind == FormatKind::Audio }
+    return nil if audio.empty?
+
+    audio.max_by? do |format|
+      {
+        (format.bitrate || 0).to_i64,
+        (format.audio_bitrate || 0).to_i64,
+        format.filesize || 0_i64,
+      }
+    end || audio.first
   end
 
   def by_id(formats : Array(Format), format_id : String) : Format?

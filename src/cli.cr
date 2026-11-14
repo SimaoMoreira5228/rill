@@ -184,6 +184,8 @@ module Rill::CLI
     directory = "."
     directory_given = false
     format_id : String? = nil
+    audio_only = false
+    video_only = false
     force = false
     resume = true
     playlist_mode = false
@@ -203,6 +205,8 @@ module Rill::CLI
     parser.on("-f ID", "--format ID", "Use a specific format id") do |value|
       format_id = value
     end
+    parser.on("-a", "--audio", "Download the best audio-only format") { audio_only = true }
+    parser.on("--video-only", "Download the best video-only format") { video_only = true }
     parser.on("--force", "Overwrite an existing file") { force = true }
     parser.on("--no-resume", "Do not resume an existing part file") { resume = false }
     parser.on("--playlist", "Download every entry in a playlist") { playlist_mode = true }
@@ -232,6 +236,24 @@ module Rill::CLI
       return 2
     end
 
+    if audio_only && video_only
+      STDERR.puts "--audio and --video-only cannot be combined"
+      return 2
+    end
+
+    if format_id && (audio_only || video_only)
+      STDERR.puts "--format cannot be combined with --audio or --video-only"
+      return 2
+    end
+
+    preference = if audio_only
+                   FormatPreference::AudioOnly
+                 elsif video_only
+                   FormatPreference::VideoOnly
+                 else
+                   FormatPreference::AudioAndVideo
+                 end
+
     client = Client.new(options)
     result = client.extract(remaining.first)
 
@@ -258,19 +280,20 @@ module Rill::CLI
         resume,
         force,
         media_backend,
+        preference,
         cancellation,
       )
     end
 
     media = result
-    plan = FormatSelector.plan(media.formats, format_id)
+    plan = FormatSelector.plan(media.formats, format_id, preference)
 
     unless plan
-      STDERR.puts format_id ? "unknown format: #{format_id}" : "no downloadable formats"
+      STDERR.puts format_plan_error(format_id, preference)
       return 1
     end
 
-    if plan.stream.kind.video? && plan.audio.nil?
+    if preference.audio_and_video? && plan.stream.kind.video? && plan.audio.nil?
       STDERR.puts "no audio track is available for this video"
     end
 
@@ -334,6 +357,7 @@ module Rill::CLI
     resume : Bool,
     force : Bool,
     media_backend : MediaMuxer::Backend,
+    preference : FormatPreference,
     cancellation : Cancellation,
   ) : Int32
     Dir.mkdir_p(directory)
@@ -353,9 +377,9 @@ module Rill::CLI
           raise DownloadError.new("entry is another playlist")
         end
 
-        plan = FormatSelector.plan(result.formats, format_id)
+        plan = FormatSelector.plan(result.formats, format_id, preference)
         unless plan
-          raise DownloadError.new("no downloadable formats")
+          raise DownloadError.new(format_plan_error(format_id, preference))
         end
 
         target = OutputFileName.resolve(directory, result.title, plan.container)
@@ -390,6 +414,22 @@ module Rill::CLI
     clear_progress_line
     STDERR.puts "cancelled"
     130
+  end
+
+  private def self.format_plan_error(
+    format_id : String?,
+    preference : FormatPreference,
+  ) : String
+    return "unknown format: #{format_id}" if format_id
+
+    case preference
+    when .audio_only?
+      "no audio-only format is available"
+    when .video_only?
+      "no video-only format is available"
+    else
+      "no downloadable formats"
+    end
   end
 
   private def self.print_progress(progress : DownloadProgress) : Nil

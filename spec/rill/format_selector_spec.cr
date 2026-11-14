@@ -114,6 +114,58 @@ describe Rill::FormatSelector do
     plan.audio.not_nil!.format_id.should eq("audio")
   end
 
+  it "selects audio-only when requested" do
+    formats = [
+      selectable("video", Rill::FormatKind::Video, "mp4", height: 1080),
+      selectable("mp3", Rill::FormatKind::Audio, "mp3", audio_bitrate: 128),
+      selectable("opus", Rill::FormatKind::Audio, "webm", audio_bitrate: 160),
+    ]
+
+    plan = Rill::FormatSelector.plan(
+      formats,
+      preference: Rill::FormatPreference::AudioOnly,
+    ).not_nil!
+    plan.stream.format_id.should eq("opus")
+    plan.audio.should be_nil
+  end
+
+  it "reports no audio-only plan when only video exists" do
+    formats = [
+      selectable("video", Rill::FormatKind::Video, "mp4", height: 1080),
+    ]
+
+    Rill::FormatSelector.plan(
+      formats,
+      preference: Rill::FormatPreference::AudioOnly,
+    ).should be_nil
+  end
+
+  it "selects video-only without pairing audio" do
+    formats = [
+      selectable("combined", Rill::FormatKind::Combined, "mp4", height: 720),
+      selectable("video", Rill::FormatKind::Video, "mp4", height: 1080),
+      selectable("audio", Rill::FormatKind::Audio, "mp4", audio_bitrate: 128),
+    ]
+
+    plan = Rill::FormatSelector.plan(
+      formats,
+      preference: Rill::FormatPreference::VideoOnly,
+    ).not_nil!
+    plan.stream.format_id.should eq("video")
+    plan.audio.should be_nil
+  end
+
+  it "reports no video-only plan for combined-only formats" do
+    formats = [
+      selectable("combined", Rill::FormatKind::Combined, "mp4", height: 720),
+    ]
+
+    Rill::FormatSelector.plan(
+      formats,
+      preference: Rill::FormatPreference::VideoOnly,
+    ).should be_nil
+  end
+
   it "returns nil for an empty list" do
     Rill::FormatSelector.best([] of Rill::Format).should be_nil
   end
