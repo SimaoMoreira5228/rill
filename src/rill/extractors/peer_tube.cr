@@ -5,6 +5,8 @@ require "uri"
 require "../errors"
 require "../extractor"
 require "../format"
+require "../http_url"
+require "../json_value"
 require "../media"
 
 module Rill::Extractors
@@ -43,12 +45,12 @@ module Rill::Extractors
       end
 
       Media.new(
-        id: scalar_string(payload["uuid"]?) || identifier,
-        title: scalar_string(payload["name"]?) || identifier,
-        description: scalar_string(payload["description"]?),
+        id: JsonValue.string(payload["uuid"]?) || identifier,
+        title: JsonValue.string(payload["name"]?) || identifier,
+        description: JsonValue.string(payload["description"]?),
         webpage_url: url,
         uploader: uploader(payload),
-        duration_seconds: number(payload["duration"]?),
+        duration_seconds: JsonValue.number(payload["duration"]?),
         thumbnail_url: thumbnail_url(url, payload),
         upload_date: date_value(payload),
         extractor: name,
@@ -95,7 +97,7 @@ module Rill::Extractors
     end
 
     private def formats_from(payload : Hash(String, JSON::Any)) : Array(Format)
-      duration = number(payload["duration"]?)
+      duration = JsonValue.number(payload["duration"]?)
       language = language_for(payload)
       formats = [] of Format
       seen = Set(String).new
@@ -105,7 +107,7 @@ module Rill::Extractors
         file_hash = file.as_h?
         next unless file_hash
 
-        file_url = parse_uri(scalar_string(file_hash["fileUrl"]?))
+        file_url = HttpUrl.absolute(JsonValue.string(file_hash["fileUrl"]?))
         next unless file_url
 
         resolution = file_hash["resolution"]?.try(&.as_h?)
@@ -128,7 +130,7 @@ module Rill::Extractors
           container: container_for(file_url),
           bitrate: bitrate(size, duration),
           height: audio_only ? nil : height.try(&.to_i32),
-          fps: positive_float(file_hash["fps"]?),
+          fps: JsonValue.positive_number(file_hash["fps"]?),
           filesize: size,
           language: language,
           note: label,
@@ -153,7 +155,7 @@ module Rill::Extractors
         playlist_hash = playlist.as_h?
         next unless playlist_hash
 
-        playlist_url = parse_uri(scalar_string(playlist_hash["playlistUrl"]?))
+        playlist_url = HttpUrl.absolute(JsonValue.string(playlist_hash["playlistUrl"]?))
         next unless playlist_url
 
         formats << Format.new(
@@ -171,17 +173,17 @@ module Rill::Extractors
       account = payload["account"]?.try(&.as_h?)
       return nil unless account
 
-      scalar_string(account["displayName"]?) || scalar_string(account["name"]?)
+      JsonValue.string(account["displayName"]?) || JsonValue.string(account["name"]?)
     end
 
     private def thumbnail_url(url : URI, payload : Hash(String, JSON::Any)) : URI?
-      path = scalar_string(payload["thumbnailPath"]?) || scalar_string(payload["previewPath"]?)
+      path = JsonValue.string(payload["thumbnailPath"]?) || JsonValue.string(payload["previewPath"]?)
       return nil unless path
       return nil unless path.starts_with?('/')
 
       port = url.port
       host = port ? "#{url.host}:#{port}" : url.host.to_s
-      parse_uri("#{url.scheme}://#{host}#{path}")
+      HttpUrl.absolute("#{url.scheme}://#{host}#{path}")
     end
 
     private def language_for(payload : Hash(String, JSON::Any)) : String?
@@ -189,14 +191,14 @@ module Rill::Extractors
       return nil unless value
 
       if hash = value.as_h?
-        scalar_string(hash["id"]?)
+        JsonValue.string(hash["id"]?)
       else
         value.as_s?
       end
     end
 
     private def date_value(payload : Hash(String, JSON::Any)) : String?
-      value = scalar_string(payload["publishedAt"]?)
+      value = JsonValue.string(payload["publishedAt"]?)
       return nil unless value
       return nil if value.size < 10
 
@@ -214,56 +216,11 @@ module Rill::Extractors
       (size * 8 / duration).to_i64
     end
 
-    private def number(value : JSON::Any?) : Float64?
-      return nil unless value
-
-      parsed = if integer = value.as_i64?
-                 integer.to_f
-               elsif float = value.as_f?
-                 float
-               else
-                 nil
-               end
-
-      return nil unless parsed && parsed.finite?
+    private def integer(value : JSON::Any?) : Int64?
+      parsed = JsonValue.integer(value)
+      return nil unless parsed && parsed >= 0
 
       parsed
-    end
-
-    private def integer(value : JSON::Any?) : Int64?
-      parsed = number(value)
-      return nil unless parsed && parsed >= 0 && parsed <= Int64::MAX.to_f
-
-      parsed.to_i64
-    end
-
-    private def positive_float(value : JSON::Any?) : Float64?
-      number = number(value)
-      number && number > 0 ? number : nil
-    end
-
-    private def scalar_string(value : JSON::Any?) : String?
-      return nil unless value
-
-      if string = value.as_s?
-        string
-      elsif integer = value.as_i64?
-        integer.to_s
-      else
-        nil
-      end
-    end
-
-    private def parse_uri(value : String?) : URI?
-      return nil unless value
-
-      uri = URI.parse(value)
-      return nil unless uri.scheme == "http" || uri.scheme == "https"
-      return nil if uri.host.nil?
-
-      uri
-    rescue URI::Error
-      nil
     end
   end
 end

@@ -4,6 +4,8 @@ require "uri"
 require "../errors"
 require "../extractor"
 require "../format"
+require "../http_url"
+require "../json_value"
 require "../media"
 require "../mime_type"
 
@@ -48,12 +50,12 @@ module Rill::Extractors
       end
 
       Media.new(
-        id: scalar_string(payload["guid"]?),
-        title: scalar_string(payload["title"]?) || slug,
-        description: scalar_string(payload["description"]?),
+        id: JsonValue.string(payload["guid"]?),
+        title: JsonValue.string(payload["title"]?) || slug,
+        description: JsonValue.string(payload["description"]?),
         webpage_url: url,
         uploader: persons(payload["persons"]?),
-        duration_seconds: parse_seconds(payload["duration"]?),
+        duration_seconds: JsonValue.seconds(payload["duration"]?),
         thumbnail_url: thumbnail_url(payload),
         upload_date: date_value(payload),
         extractor: name,
@@ -81,8 +83,8 @@ module Rill::Extractors
 
         entries << PlaylistEntry.new(
           url: entry_url,
-          title: scalar_string(event_hash["title"]?),
-          id: scalar_string(event_hash["guid"]?),
+          title: JsonValue.string(event_hash["title"]?),
+          id: JsonValue.string(event_hash["guid"]?),
         )
       end
 
@@ -92,7 +94,7 @@ module Rill::Extractors
 
       Playlist.new(
         id: acronym,
-        title: scalar_string(payload["title"]?) || acronym,
+        title: JsonValue.string(payload["title"]?) || acronym,
         webpage_url: url,
         extractor: name,
         entries: entries,
@@ -152,13 +154,13 @@ module Rill::Extractors
         recording_hash = recording.as_h?
         next unless recording_hash
 
-        filename = scalar_string(recording_hash["filename"]?)
+        filename = JsonValue.string(recording_hash["filename"]?)
         next unless filename
 
-        recording_url = parse_uri(scalar_string(recording_hash["recording_url"]?))
+        recording_url = HttpUrl.absolute(JsonValue.string(recording_hash["recording_url"]?))
         next unless recording_url
 
-        mime_type = scalar_string(recording_hash["mime_type"]?) || ""
+        mime_type = JsonValue.string(recording_hash["mime_type"]?) || ""
         mime = MimeType.parse(mime_type)
         next if mime.empty?
 
@@ -170,21 +172,14 @@ module Rill::Extractors
           container: mime.container,
           video_codec: audio ? nil : mime.codecs,
           audio_codec: audio ? mime.audio_codec : nil,
-          width: dimension(recording_hash["width"]?),
-          height: dimension(recording_hash["height"]?),
-          language: scalar_string(recording_hash["language"]?),
+          width: JsonValue.dimension(recording_hash["width"]?),
+          height: JsonValue.dimension(recording_hash["height"]?),
+          language: JsonValue.string(recording_hash["language"]?),
           note: mime_type,
         )
       end
 
       formats
-    end
-
-    private def dimension(value : JSON::Any?) : Int32?
-      number = value.try(&.as_i64?)
-      return nil unless number && 0 < number <= 100_000
-
-      number.to_i32
     end
 
     private def persons(value : JSON::Any?) : String?
@@ -196,62 +191,29 @@ module Rill::Extractors
     end
 
     private def event_url(event : Hash(String, JSON::Any)) : URI?
-      value = scalar_string(event["frontend_link"]?) || scalar_string(event["link"]?)
+      value = JsonValue.string(event["frontend_link"]?) || JsonValue.string(event["link"]?)
 
       if value.nil?
-        slug = scalar_string(event["slug"]?)
+        slug = JsonValue.string(event["slug"]?)
         value = "#{DEFAULT_API_BASE}/v/#{URI.encode_path_segment(slug)}" if slug
       end
 
       return nil unless value
       value = value.sub("/public/events/", "/v/")
-      parse_uri(value)
+      HttpUrl.absolute(value)
     end
 
     private def thumbnail_url(payload : Hash(String, JSON::Any)) : URI?
-      value = scalar_string(payload["thumb_url"]?) || scalar_string(payload["poster_url"]?)
-      value ? parse_uri(value) : nil
-    end
-
-    private def parse_uri(value : String?) : URI?
-      return nil unless value
-
-      uri = URI.parse(value)
-      return nil unless uri.scheme == "http" || uri.scheme == "https"
-      return nil if uri.host.nil?
-
-      uri
-    rescue URI::Error
-      nil
+      value = JsonValue.string(payload["thumb_url"]?) || JsonValue.string(payload["poster_url"]?)
+      value ? HttpUrl.absolute(value) : nil
     end
 
     private def date_value(payload : Hash(String, JSON::Any)) : String?
-      value = scalar_string(payload["date"]?)
+      value = JsonValue.string(payload["date"]?)
       return nil unless value
       return nil if value.size < 10
 
       value[0, 10]
-    end
-
-    private def parse_seconds(value : JSON::Any?) : Float64?
-      seconds = scalar_string(value).try(&.to_f?)
-      return nil unless seconds && seconds.finite? && seconds >= 0
-
-      seconds
-    end
-
-    private def scalar_string(value : JSON::Any?) : String?
-      return nil unless value
-
-      if string = value.as_s?
-        string
-      elsif integer = value.as_i64?
-        integer.to_s
-      elsif float = value.as_f?
-        float.to_s
-      else
-        nil
-      end
     end
   end
 end

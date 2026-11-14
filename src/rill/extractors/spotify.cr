@@ -3,6 +3,8 @@ require "uri"
 
 require "../errors"
 require "../extractor"
+require "../http_url"
+require "../json_value"
 require "../media"
 require "./youtube"
 
@@ -42,7 +44,7 @@ module Rill::Extractors
         raise MediaUnavailableError.new(url.to_s, "track is not playable")
       end
 
-      title = scalar_string(entity["title"]?) || scalar_string(entity["name"]?) || track_id
+      title = JsonValue.string(entity["title"]?) || JsonValue.string(entity["name"]?) || track_id
       artists = artist_names(entity)
       duration = duration_seconds(entity)
       query = [title, artists].compact.join(" ").strip
@@ -118,7 +120,7 @@ module Rill::Extractors
       return nil unless artists
 
       names = artists.compact_map do |artist|
-        artist.as_h?.try { |hash| scalar_string(hash["name"]?) }
+        artist.as_h?.try { |hash| JsonValue.string(hash["name"]?) }
       end
       names.empty? ? nil : names.join(", ")
     end
@@ -132,7 +134,7 @@ module Rill::Extractors
 
     private def release_date(entity : Hash(String, JSON::Any)) : String?
       release = entity["releaseDate"]?.try(&.as_h?)
-      value = release.try { |hash| scalar_string(hash["isoString"]?) }
+      value = release.try { |hash| JsonValue.string(hash["isoString"]?) }
       return nil unless value
       return nil if value.size < 10
 
@@ -149,8 +151,8 @@ module Rill::Extractors
       end
       return nil unless image
 
-      value = image.as_h?.try { |hash| scalar_string(hash["url"]?) }
-      parse_uri(value)
+      value = image.as_h?.try { |hash| JsonValue.string(hash["url"]?) }
+      HttpUrl.absolute(value)
     end
 
     private def select_match(
@@ -177,28 +179,6 @@ module Rill::Extractors
       end
 
       value
-    end
-
-    private def scalar_string(value : JSON::Any?) : String?
-      return nil unless value
-
-      if string = value.as_s?
-        string
-      elsif integer = value.as_i64?
-        integer.to_s
-      end
-    end
-
-    private def parse_uri(value : String?) : URI?
-      return nil unless value
-
-      uri = URI.parse(value)
-      return nil unless uri.scheme == "http" || uri.scheme == "https"
-      return nil if uri.host.nil?
-
-      uri
-    rescue URI::Error
-      nil
     end
   end
 end

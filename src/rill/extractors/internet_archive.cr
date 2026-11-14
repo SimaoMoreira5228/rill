@@ -4,7 +4,9 @@ require "uri"
 require "../errors"
 require "../extractor"
 require "../format"
+require "../json_value"
 require "../media"
+require "../timestamp"
 
 module Rill::Extractors
   class InternetArchive < Extractor
@@ -60,16 +62,16 @@ module Rill::Extractors
         raise MediaUnavailableError.new(url.to_s, "item has no downloadable media")
       end
 
-      title = scalar_string(metadata["title"]?) || identifier
-      duration = parse_seconds(scalar_string(metadata["length"]?))
+      title = JsonValue.string(metadata["title"]?) || identifier
+      duration = Timestamp.clock_seconds(JsonValue.string(metadata["length"]?))
       duration ||= formats.compact_map(&.duration_seconds).first?
 
       Media.new(
-        id: scalar_string(metadata["identifier"]?) || identifier,
+        id: JsonValue.string(metadata["identifier"]?) || identifier,
         title: title,
-        description: scalar_string(metadata["description"]?),
+        description: JsonValue.string(metadata["description"]?),
         webpage_url: url,
-        uploader: scalar_string(metadata["creator"]?) || scalar_string(metadata["uploader"]?),
+        uploader: JsonValue.string(metadata["creator"]?) || JsonValue.string(metadata["uploader"]?),
         duration_seconds: duration,
         thumbnail_url: thumbnail_url_for(identifier),
         upload_date: date_value(metadata),
@@ -122,16 +124,16 @@ module Rill::Extractors
         extension = File.extname(file_name).lchop('.').downcase
         next unless MEDIA_EXTENSIONS.includes?(extension)
 
-        label = scalar_string(file_hash["format"]?)
+        label = JsonValue.string(file_hash["format"]?)
         format = Format.new(
           format_id: file_name,
           url: download_url(identifier, file_name),
           kind: kind_for(extension),
           container: extension,
-          width: dimension(file_hash["width"]?),
-          height: dimension(file_hash["height"]?),
+          width: JsonValue.dimension(file_hash["width"]?),
+          height: JsonValue.dimension(file_hash["height"]?),
           filesize: int_value(file_hash["size"]?),
-          duration_seconds: parse_seconds(scalar_string(file_hash["length"]?)),
+          duration_seconds: Timestamp.clock_seconds(JsonValue.string(file_hash["length"]?)),
           note: label,
         )
         formats << format
@@ -162,71 +164,17 @@ module Rill::Extractors
     end
 
     private def date_value(metadata : Hash(String, JSON::Any)) : String?
-      value = scalar_string(metadata["date"]?) || scalar_string(metadata["addeddate"]?)
+      value = JsonValue.string(metadata["date"]?) || JsonValue.string(metadata["addeddate"]?)
       return nil unless value
 
       value.size >= 10 ? value[0, 10] : value
     end
 
-    private def scalar_string(value : JSON::Any?) : String?
-      return nil unless value
-
-      if string = value.as_s?
-        string
-      elsif array = value.as_a?
-        array.each do |item|
-          item_string = item.as_s?
-          return item_string if item_string
-        end
-        nil
-      elsif integer = value.as_i64?
-        integer.to_s
-      else
-        nil
-      end
-    end
-
     private def int_value(value : JSON::Any?) : Int64?
-      return nil unless value
-
-      parsed = if string = value.as_s?
-                 string.to_i64?
-               else
-                 value.as_i64?
-               end
+      parsed = JsonValue.integer(value)
       return nil unless parsed && parsed >= 0
 
       parsed
-    end
-
-    private def dimension(value : JSON::Any?) : Int32?
-      parsed = int_value(value)
-      return nil unless parsed && 0 < parsed <= 100_000
-
-      parsed.to_i32
-    end
-
-    private def parse_seconds(value : String?) : Float64?
-      return nil unless value
-
-      text = value.strip
-      return nil if text.empty?
-
-      seconds = if text.includes?(':')
-                  total = 0.0
-                  text.split(':').each do |part|
-                    number = part.to_f?
-                    return nil unless number
-                    total = total * 60 + number
-                  end
-                  total
-                else
-                  text.to_f?
-                end
-
-      return nil unless seconds && seconds.finite? && seconds >= 0
-
-      seconds
     end
   end
 end

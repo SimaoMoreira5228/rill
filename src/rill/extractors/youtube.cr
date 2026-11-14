@@ -6,8 +6,11 @@ require "uri"
 require "../errors"
 require "../extractor"
 require "../format"
+require "../http_url"
+require "../json_value"
 require "../media"
 require "../mime_type"
+require "../timestamp"
 
 module Rill::Extractors
   class YouTube < Extractor
@@ -232,11 +235,11 @@ module Rill::Extractors
     end
 
     private def search_result(renderer : Hash(String, JSON::Any)) : SearchResult?
-      video_id = scalar_string(renderer["videoId"]?)
+      video_id = JsonValue.string(renderer["videoId"]?)
       return nil unless video_id
 
       title = text_runs(renderer["title"]?) || video_id
-      duration = clock_seconds(text_runs(renderer["lengthText"]?))
+      duration = Timestamp.clock_seconds(text_runs(renderer["lengthText"]?))
 
       SearchResult.new(video_id, title, duration)
     end
@@ -248,27 +251,13 @@ module Rill::Extractors
       if runs = hash["runs"]?.try(&.as_a?)
         text = runs.compact_map do |run|
           run_hash = run.as_h?
-          scalar_string(run_hash.try(&.["text"]?))
+          JsonValue.string(run_hash.try(&.["text"]?))
         end.join
 
         return text unless text.empty?
       end
 
-      scalar_string(hash["simpleText"]?)
-    end
-
-    private def clock_seconds(value : String?) : Float64?
-      return nil unless value
-
-      parts = value.split(':').map(&.to_i?)
-      return nil if parts.empty? || parts.any?(&.nil?)
-
-      seconds = 0_i64
-      parts.each do |part|
-        seconds = seconds * 60 + part.not_nil!
-      end
-
-      seconds.to_f
+      JsonValue.string(hash["simpleText"]?)
     end
 
     private def build_media(
@@ -279,12 +268,12 @@ module Rill::Extractors
       url : URI,
     ) : Media
       Media.new(
-        id: scalar_string(details["videoId"]?) || video_id,
-        title: scalar_string(details["title"]?) || video_id,
-        description: scalar_string(details["shortDescription"]?),
+        id: JsonValue.string(details["videoId"]?) || video_id,
+        title: JsonValue.string(details["title"]?) || video_id,
+        description: JsonValue.string(details["shortDescription"]?),
         webpage_url: url,
-        uploader: scalar_string(details["author"]?),
-        duration_seconds: parse_seconds(details["lengthSeconds"]?),
+        uploader: JsonValue.string(details["author"]?),
+        duration_seconds: JsonValue.seconds(details["lengthSeconds"]?),
         thumbnail_url: thumbnail_url(details),
         upload_date: upload_date(payload),
         extractor: name,
@@ -406,22 +395,22 @@ module Rill::Extractors
       value = item.as_h?
       return nil unless value
 
-      url = parse_uri(scalar_string(value["url"]?))
+      url = HttpUrl.absolute(JsonValue.string(value["url"]?))
       return nil unless url
       return nil if value["signatureCipher"]?
 
-      itag = integer(value["itag"]?)
+      itag = JsonValue.integer(value["itag"]?)
       return nil unless itag
 
-      mime_type = scalar_string(value["mimeType"]?) || ""
+      mime_type = JsonValue.string(value["mimeType"]?) || ""
       mime = MimeType.parse(mime_type)
       return nil if mime.empty?
 
-      width = dimension(value["width"]?)
-      height = dimension(value["height"]?)
+      width = JsonValue.dimension(value["width"]?)
+      height = JsonValue.dimension(value["height"]?)
       has_video = mime.video? && (!width.nil? || !height.nil?)
       has_audio = mime.audio? ||
-                  (integer(value["audioChannels"]?) || 0) > 0
+                  (JsonValue.integer(value["audioChannels"]?) || 0) > 0
       return nil unless has_video || has_audio
 
       codec_list = mime.codec_list
@@ -438,16 +427,16 @@ module Rill::Extractors
         url: url,
         kind: format_kind(has_video, has_audio),
         container: mime.container,
-        bitrate: integer(value["bitrate"]?),
+        bitrate: JsonValue.integer(value["bitrate"]?),
         video_codec: video_codec,
         audio_codec: audio_codec,
         width: width,
         height: height,
-        fps: positive_number(value["fps"]?),
-        filesize: integer(value["contentLength"]?),
+        fps: JsonValue.positive_number(value["fps"]?),
+        filesize: JsonValue.integer(value["contentLength"]?),
         range_chunk_size: 1024_i64 * 1024,
         language: audio_language(value),
-        note: scalar_string(value["qualityLabel"]?) || scalar_string(value["audioQuality"]?),
+        note: JsonValue.string(value["qualityLabel"]?) || JsonValue.string(value["audioQuality"]?),
       )
     end
 
@@ -465,7 +454,7 @@ module Rill::Extractors
       track = value["audioTrack"]?.try(&.as_h?)
       return nil unless track
 
-      scalar_string(track["displayName"]?) || scalar_string(track["id"]?)
+      JsonValue.string(track["displayName"]?) || JsonValue.string(track["id"]?)
     end
 
     private def thumbnail_url(details : Hash(String, JSON::Any)) : URI?
@@ -479,7 +468,7 @@ module Rill::Extractors
         image_hash = image.as_h?
         next unless image_hash
 
-        uri = parse_uri(scalar_string(image_hash["url"]?))
+        uri = HttpUrl.absolute(JsonValue.string(image_hash["url"]?))
         return uri if uri
       end
 
@@ -493,7 +482,7 @@ module Rill::Extractors
       renderer = microformat["playerMicroformatRenderer"]?.try(&.as_h?)
       return nil unless renderer
 
-      value = scalar_string(renderer["publishDate"]?) || scalar_string(renderer["uploadDate"]?)
+      value = JsonValue.string(renderer["publishDate"]?) || JsonValue.string(renderer["uploadDate"]?)
       return nil unless value
       return nil if value.size < 10
 
@@ -526,63 +515,6 @@ module Rill::Extractors
       return nil unless VIDEO_ID.matches?(value)
 
       value
-    end
-
-    private def dimension(value : JSON::Any?) : Int32?
-      number = integer(value)
-      return nil unless number && 0 < number <= 100_000
-
-      number.to_i32
-    end
-
-    private def parse_seconds(value : JSON::Any?) : Float64?
-      seconds = scalar_string(value).try(&.to_f?)
-      return nil unless seconds && seconds.finite? && seconds >= 0
-
-      seconds
-    end
-
-    private def positive_number(value : JSON::Any?) : Float64?
-      number = value.try(&.as_f?) || value.try(&.as_i64?).try(&.to_f)
-      return nil unless number && number.finite? && number > 0
-
-      number
-    end
-
-    private def integer(value : JSON::Any?) : Int64?
-      return nil unless value
-
-      if string = value.as_s?
-        string.to_i64?
-      else
-        value.as_i64?
-      end
-    end
-
-    private def scalar_string(value : JSON::Any?) : String?
-      return nil unless value
-
-      if string = value.as_s?
-        string
-      elsif integer = value.as_i64?
-        integer.to_s
-      elsif float = value.as_f?
-        float.to_s
-      else
-        nil
-      end
-    end
-
-    private def parse_uri(value : String?) : URI?
-      return nil unless value
-
-      uri = URI.parse(value)
-      return nil unless uri.scheme == "http" || uri.scheme == "https"
-      return nil if uri.host.nil?
-
-      uri
-    rescue URI::Error
-      nil
     end
   end
 end

@@ -5,6 +5,7 @@ require "xml"
 require "../errors"
 require "../extractor"
 require "../format"
+require "../http_url"
 require "../media"
 require "../mime_type"
 require "./direct_media"
@@ -197,7 +198,7 @@ module Rill::Extractors
         @title ||= fallback_title
 
         if url = @thumbnail_candidate
-          @thumbnail_url = resolve(url)
+          @thumbnail_url = HttpUrl.resolve(@base_url, url)
         end
 
         @media.each do |entry|
@@ -226,7 +227,7 @@ module Rill::Extractors
       end
 
       private def add_media(value : String, kind : FormatKind, note : String) : Nil
-        uri = resolve(value)
+        uri = HttpUrl.resolve(@base_url, value)
         return unless uri
         return if @seen.includes?(uri.to_s)
 
@@ -236,16 +237,6 @@ module Rill::Extractors
 
         @seen << uri.to_s
         @media << {uri: uri, kind: kind, note: note, extension: extension}
-      end
-
-      private def resolve(value : String) : URI?
-        uri = @base_url.resolve(value)
-        return nil unless uri.scheme == "http" || uri.scheme == "https"
-        return nil if uri.host.nil?
-
-        uri
-      rescue URI::Error
-        nil
       end
     end
   end
