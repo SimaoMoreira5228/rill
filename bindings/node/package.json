@@ -1,0 +1,10 @@
+{
+  "name": "rill-media-node",
+  "version": "2026.11.14",
+  "main": "index.js",
+  "gypfile": true,
+  "scripts": {
+    "install": "node-gyp rebuild",
+    "test": "node smoke.js"
+  }
+}

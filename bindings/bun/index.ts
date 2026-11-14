@@ -1,6 +1,8 @@
 import { CString, dlopen, FFIType, ptr } from "bun:ffi";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { Worker } from "node:worker_threads";
 
 const libraryName =
   process.platform === "darwin"
@@ -11,6 +13,8 @@ const libraryName =
 
 const libraryPath =
   process.env.RILL_LIBRARY ?? join(import.meta.dir, "..", "..", "build", libraryName);
+
+const workerPath = fileURLToPath(new URL("./extract-worker.ts", import.meta.url));
 
 if (!existsSync(libraryPath)) {
   throw new Error(`Rill library not found at ${libraryPath}`);
@@ -100,7 +104,7 @@ export function shutdown(): void {
   }
 }
 
-export function extractJson(url: string, options?: string): string {
+export function extractJsonSync(url: string, options?: string): string {
   const jsonOut = new BigUint64Array(1);
   const errorOut = new BigUint64Array(1);
   const codeOut = new BigUint64Array(1);
@@ -128,6 +132,48 @@ export function extractJson(url: string, options?: string): string {
   }
 
   return json;
+}
+
+export async function extractJson(url: string, options?: string): Promise<string> {
+  return await new Promise((resolve, reject) => {
+    const worker = new Worker(workerPath, {
+      workerData: { url, options, libraryPath },
+    });
+
+    let settled = false;
+
+    worker.once("message", (message) => {
+      settled = true;
+
+      if (message.ok) {
+        resolve(message.json);
+      } else {
+        reject(
+          new RillError(
+            message.error.status ?? 2,
+            message.error.message,
+            message.error.kind,
+          ),
+        );
+      }
+
+      worker.terminate();
+    });
+
+    worker.once("error", (error) => {
+      if (!settled) {
+        settled = true;
+        reject(new RillError(2, error instanceof Error ? error.message : String(error), "internal"));
+      }
+    });
+
+    worker.once("exit", (code) => {
+      if (!settled) {
+        settled = true;
+        reject(new RillError(2, `extraction worker exited with ${code}`, "internal"));
+      }
+    });
+  });
 }
 
 export class Download {
@@ -206,6 +252,21 @@ export class Download {
       }
 
       await Bun.sleep(intervalMs);
+    }
+  }
+
+  waitSync(intervalMs = 50): DownloadProgress {
+    while (true) {
+      const progress = this.poll();
+      if (
+        progress.state === DownloadState.Completed ||
+        progress.state === DownloadState.Failed ||
+        progress.state === DownloadState.Cancelled
+      ) {
+        return progress;
+      }
+
+      Bun.sleepSync(intervalMs);
     }
   }
 

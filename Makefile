@@ -18,7 +18,7 @@ LIBRARY := build/librill.so
 C_LINK_FLAGS := -Lbuild -l:librill.so -Wl,-rpath,$(CURDIR)/build
 endif
 
-.PHONY: all cli lib media-helper media-helper-system media-helper-static test test-media test-c-api test-cpp test-rust test-bun clean
+.PHONY: all cli lib media-helper media-helper-system media-helper-static test test-media test-c-api test-cpp test-rust test-bun test-node clean
 
 all: cli lib
 
@@ -71,6 +71,11 @@ test-rust: lib
 test-bun: lib
 	test/run_with_server.sh env RILL_LIBRARY=$(CURDIR)/build/librill.so \
 		bun run bindings/bun/smoke.ts
+
+test-node: lib
+	cd bindings/node && npx --yes node-gyp rebuild
+	test/run_with_server.sh env LD_LIBRARY_PATH=$(CURDIR)/build \
+		node bindings/node/smoke.js
 
 clean:
 	rm -rf bin build

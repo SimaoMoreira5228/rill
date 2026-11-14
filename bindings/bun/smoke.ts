@@ -4,6 +4,7 @@ import {
   RillError,
   abiVersion,
   extractJson,
+  extractJsonSync,
   init,
   shutdown,
 } from "./index.ts";
@@ -17,12 +18,15 @@ function assert(condition: unknown, message: string): asserts condition {
 assert(abiVersion() === 2, "unexpected ABI version");
 init(4);
 
-const json = extractJson("https://example.com/clip.mp4");
-assert(json.includes('"title": "clip"'), "extraction result");
+const json = extractJsonSync("https://example.com/clip.mp4");
+assert(json.includes('"title": "clip"'), "sync extraction result");
+
+const asyncJson = await extractJson("https://example.com/clip.mp4");
+assert(asyncJson.includes('"title": "clip"'), "async extraction result");
 
 let failed = false;
 try {
-  extractJson("https://example.com/page.html");
+  await extractJson("https://example.com/page.html");
 } catch (error) {
   failed = true;
   assert(error instanceof RillError, "expected RillError");
@@ -49,7 +53,7 @@ if (url && output) {
     const cancellable = new Download(slowUrl, cancelOutput);
     cancellable.cancel();
 
-    const cancelled = await cancellable.wait(20);
+    const cancelled = cancellable.waitSync(20);
     assert(cancelled.state === DownloadState.Cancelled, "download cancelled");
     assert(cancellable.error() !== "", "cancel error");
     cancellable.close();

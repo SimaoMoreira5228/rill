@@ -9,3 +9,4 @@
 /.opencode/
 subprojects/.wraplock
 bindings/rust/target/
+bindings/node/build/
