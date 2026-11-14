@@ -1,5 +1,5 @@
 {
-  "name": "@rill/bun",
+  "name": "rill-bun",
   "version": "2026.11.14",
   "description": "Bun bindings for the Rill media extractor and downloader",
   "license": "Apache-2.0",

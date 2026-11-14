@@ -1,4 +1,4 @@
-# @rill/node
+# rill-node
 
 Node.js bindings for [Rill](https://github.com/SimaoMoreira5228/rill), a media extractor and downloader.
 
@@ -9,15 +9,15 @@ The package contains a small Node-API addon. It calls the same `librill` library
 Node 18 or newer is required. Released tarballs contain prebuilt native directories, so installation does not need Crystal. If the matching platform directory is missing, the install script builds `librill` from the bundled Crystal source:
 
 ```sh
-npm install @rill/node
+npm install rill-node
 ```
 
 If you have a compatible build already, point the install at it:
 
 ```sh
-RILL_LIB_DIR=/path/to/rill/build npm install @rill/node
+RILL_LIB_DIR=/path/to/rill/build npm install rill-node
 # or
-RILL_LIBRARY=/path/to/librill.so npm install @rill/node
+RILL_LIBRARY=/path/to/librill.so npm install rill-node
 ```
 
 Building from source needs Crystal 1.22 or newer. On a machine without Crystal, set `RILL_LIB_DIR` or `RILL_LIBRARY`.
@@ -27,7 +27,7 @@ Released tarballs contain `native/<platform>/` directories with the addon, `libr
 ## Extract
 
 ```js
-const rill = require("@rill/node");
+const rill = require("rill-node");
 
 rill.init(4);
 
@@ -42,7 +42,7 @@ rill.shutdown();
 ## Download
 
 ```js
-const { Download, DownloadState } = require("@rill/node");
+const { Download, DownloadState } = require("rill-node");
 
 const download = new Download("https://example.com/clip.mp4", "clip.mp4", '{"overwrite":true}');
 const progress = await download.wait();

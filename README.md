@@ -64,8 +64,8 @@ Every binding calls the same native library. It must be built or installed befor
 | C | `include/rill.h` | source header |
 | C++ | `bindings/cpp/rill.hpp` | header-only wrapper |
 | Rust | `bindings/rust` | [`rill-media`](https://crates.io/crates/rill-media) |
-| Node.js | `bindings/node` | `@rill/node` |
-| Bun | `bindings/bun` | `@rill/bun` |
+| Node.js | `bindings/node` | `rill-node` |
+| Bun | `bindings/bun` | `rill-bun` |
 
 The Rust crate builds `librill` from the bundled Crystal source when no library is available. Set `RILL_LIBRARY` or `RILL_LIB_DIR` to reuse an existing build.
 
