@@ -43,6 +43,8 @@ make lib
 
 `make lib` produces `build/librill.so` on Linux, `build/librill.dylib` on macOS, or `build/rill.dll` on Windows.
 
+The prebuilt Windows CLI and SDK archives include the Crystal runtime DLLs and require the Microsoft Visual C++ 2015-2022 Redistributable.
+
 Merging separate video and audio streams needs FFmpeg. The default build uses a pinned Meson subproject:
 
 ```sh
