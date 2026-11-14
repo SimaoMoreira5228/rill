@@ -81,6 +81,8 @@ describe Rill::ExtractorRegistry do
       .should eq(Rill::Extractors::Rumble)
     registry.extractor_for("https://soundcloud.com/forss/flickermood")
       .should eq(Rill::Extractors::SoundCloud)
+    registry.extractor_for("https://soundcloud.com/dawning_records/sets/ibiza-summer-mix-2026-lounge")
+      .should eq(Rill::Extractors::SoundCloud)
     registry.extractor_for("https://on.soundcloud.com/abc123")
       .should eq(Rill::Extractors::SoundCloud)
     registry.extractor_for("https://www.mixcloud.com/dholbach/cryptkeeper/")

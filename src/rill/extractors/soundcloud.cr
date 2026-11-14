@@ -7,10 +7,12 @@ require "../format"
 require "../http_url"
 require "../json_value"
 require "../media"
+require "../playlist"
 
 module Rill::Extractors
   class SoundCloud < Extractor
     TRACK_PATH = %r{\A/([^/]+)/([^/]+)/?\z}
+    SET_PATH   = %r{\A/([^/]+)/sets/([^/]+)/?\z}
     SHORT_PATH = %r{\A/([^/]+)/?\z}
     HYDRATION  = /window\.__sc_hydration\s*=\s*(\[.*?\]);/m
     ISO_DATE   = /\A\d{4}-\d{2}-\d{2}/
@@ -38,18 +40,22 @@ module Rill::Extractors
       when "on.soundcloud.com"
         !SHORT_PATH.match(url.path).nil?
       when "soundcloud.com", "www.soundcloud.com"
-        track_path?(url.path)
+        track_path?(url.path) || set_path?(url.path)
       else
         false
       end
     end
 
-    def extract(url : URI, client : HTTPClient) : Media
+    def extract(url : URI, client : HTTPClient) : Media | Playlist
       response = fetch_page(client, url)
       page_url = response.url
 
+      if set_path?(page_url.path)
+        return extract_set(page_url, response.body)
+      end
+
       unless track_path?(page_url.path)
-        raise MediaUnavailableError.new(page_url.to_s, "link did not resolve to a track")
+        raise MediaUnavailableError.new(page_url.to_s, "link did not resolve to a track or set")
       end
 
       entries = hydration_entries(response.body, page_url)
@@ -82,6 +88,18 @@ module Rill::Extractors
 
     private def track_path?(path : String) : Bool
       match = TRACK_PATH.match(path)
+      return false unless match
+
+      user = match[1]
+      slug = match[2]
+      return false if user.empty? || slug.empty?
+      return false if reserved?(user) || reserved?(slug)
+
+      true
+    end
+
+    private def set_path?(path : String) : Bool
+      match = SET_PATH.match(path)
       return false unless match
 
       user = match[1]
@@ -148,6 +166,64 @@ module Rill::Extractors
       end
 
       nil
+    end
+
+    private def extract_set(page_url : URI, body : String) : Playlist
+      hydration = hydration_entries(body, page_url)
+      playlist = hydration_data(hydration, "playlist", page_url)
+      title = JsonValue.string(playlist["title"]?)
+      unless title
+        raise MediaUnavailableError.new(page_url.to_s, "set title is missing")
+      end
+
+      tracks = playlist["tracks"]?.try(&.as_a?)
+      unless tracks
+        raise MediaUnavailableError.new(page_url.to_s, "set has no tracks")
+      end
+
+      if tracks.empty?
+        raise MediaUnavailableError.new(page_url.to_s, "set has no tracks")
+      end
+
+      entries = playlist_entries(tracks, page_url)
+      if entries.empty?
+        raise MediaUnavailableError.new(page_url.to_s, "set has no usable track URLs")
+      end
+
+      Playlist.new(
+        id: JsonValue.string(playlist["id"]?),
+        title: title,
+        description: JsonValue.string(playlist["description"]?),
+        webpage_url: page_url,
+        extractor: name,
+        entries: entries,
+      )
+    end
+
+    private def playlist_entries(
+      tracks : Array(JSON::Any),
+      page_url : URI,
+    ) : Array(PlaylistEntry)
+      entries = [] of PlaylistEntry
+
+      tracks.each do |item|
+        track = item.as_h?
+        next unless track
+
+        permalink = JsonValue.string(track["permalink_url"]?)
+        next unless permalink
+
+        entry_url = HttpUrl.resolve(page_url, permalink)
+        next unless entry_url
+
+        entries << PlaylistEntry.new(
+          url: entry_url,
+          title: JsonValue.string(track["title"]?),
+          id: JsonValue.string(track["id"]?),
+        )
+      end
+
+      entries
     end
 
     private def media_format(

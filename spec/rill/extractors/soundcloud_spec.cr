@@ -4,6 +4,10 @@ private def soundcloud_track_path : String
   "/forss/flickermood"
 end
 
+private def soundcloud_set_path : String
+  "/dawning_records/sets/ibiza-summer-mix-2026-lounge"
+end
+
 private def soundcloud_transcoding_path : String
   "/media/soundcloud:tracks:293/fixture-aac-160/stream/hls"
 end
@@ -26,6 +30,13 @@ private def serve_soundcloud_track(server : TestHTTPServer) : Nil
   end
 end
 
+private def serve_soundcloud_set(server : TestHTTPServer) : Nil
+  server.on(soundcloud_set_path) do |_, response|
+    response.content_type = "text/html"
+    response.print(fixture("soundcloud", "set.html"))
+  end
+end
+
 private def serve_soundcloud_stream(server : TestHTTPServer) : Nil
   server.on(soundcloud_transcoding_path) do |_, response|
     response.content_type = "application/json"
@@ -41,6 +52,8 @@ describe Rill::Extractors::SoundCloud do
     extractor.matches?(URI.parse("http://soundcloud.com/forss/flickermood")).should be_true
     extractor.matches?(URI.parse("https://www.soundcloud.com/forss/flickermood/")).should be_true
     extractor.matches?(URI.parse("https://soundcloud.com/forss/flickermood?si=abc")).should be_true
+    extractor.matches?(URI.parse("https://soundcloud.com/dawning_records/sets/ibiza-summer-mix-2026-lounge")).should be_true
+    extractor.matches?(URI.parse("https://www.soundcloud.com/dawning_records/sets/ibiza-summer-mix-2026-lounge/")).should be_true
     extractor.matches?(URI.parse("https://on.soundcloud.com/abc123")).should be_true
     extractor.matches?(URI.parse("https://on.soundcloud.com/abc123/")).should be_true
   end
@@ -48,7 +61,6 @@ describe Rill::Extractors::SoundCloud do
   it "rejects collection pages, user pages, and other hosts" do
     extractor = Rill::Extractors::SoundCloud.new
 
-    extractor.matches?(URI.parse("https://soundcloud.com/forss/sets/flickermood")).should be_false
     extractor.matches?(URI.parse("https://soundcloud.com/forss/albums/flickermood")).should be_false
     extractor.matches?(URI.parse("https://soundcloud.com/forss/playlists/flickermood")).should be_false
     extractor.matches?(URI.parse("https://soundcloud.com/forss/tracks")).should be_false
@@ -121,6 +133,88 @@ describe Rill::Extractors::SoundCloud do
 
       media.webpage_url.to_s.should eq("#{server.url}#{soundcloud_track_path}")
       media.title.should eq("Flickermood")
+    ensure
+      server.close
+    end
+  end
+
+  it "extracts a set as a playlist with ordered entries" do
+    server = TestHTTPServer.new
+    serve_soundcloud_set(server)
+    server.start
+
+    begin
+      playlist = Rill::Extractors::SoundCloud.new.extract(
+        URI.parse("#{server.url}#{soundcloud_set_path}"),
+        Rill::HTTPClient.new,
+      ).as(Rill::Playlist)
+      playlist.validate!
+
+      playlist.id.should eq("2220415994")
+      playlist.title.should eq(
+        "Summer Chill Mix 2026 🌞🌴 Lounge Music, Chillout Music & Ibiza Deep House",
+      )
+      playlist.description.not_nil!.should start_with("Soak up the sunshine with Summer Chill Mix 2026")
+      playlist.webpage_url.to_s.should eq("#{server.url}#{soundcloud_set_path}")
+      playlist.extractor.should eq("soundcloud")
+      playlist.entries.map(&.url.to_s).should eq([
+        "https://soundcloud.com/lo-freq-1/sweet-disposition-a-moment-a",
+        "https://soundcloud.com/dawning_records/sur-faire-clover-place-we-know",
+        "https://soundcloud.com/7cultrecords/oskar-med-k-make-me-feel",
+      ])
+      playlist.entries.first.title.should eq("Sweet Disposition (a moment, a love)")
+      playlist.entries.first.id.should eq("2094981591")
+      server.requests.size.should eq(1)
+    ensure
+      server.close
+    end
+  end
+
+  it "follows short-link redirects to a set" do
+    server = TestHTTPServer.new
+    server.on("/set123") do |_, response|
+      response.status = HTTP::Status::FOUND
+      response.headers["Location"] = soundcloud_set_path
+    end
+    serve_soundcloud_set(server)
+    server.start
+
+    begin
+      playlist = Rill::Extractors::SoundCloud.new.extract(
+        URI.parse("#{server.url}/set123"),
+        Rill::HTTPClient.new,
+      ).as(Rill::Playlist)
+
+      playlist.webpage_url.to_s.should eq("#{server.url}#{soundcloud_set_path}")
+      playlist.entries.size.should eq(3)
+    ensure
+      server.close
+    end
+  end
+
+  it "reports sets without tracks as unavailable" do
+    body = <<-HTML
+      <script>window.__sc_hydration = [
+        {"hydratable": "apiClient", "data": {"id": "fixture-client-id"}},
+        {
+          "hydratable": "playlist",
+          "data": {"id": 1, "title": "Empty", "tracks": []}
+        }
+      ];</script>
+      HTML
+
+    server = TestHTTPServer.new
+    server.on(soundcloud_set_path) { |_, response| response.print(body) }
+    server.start
+
+    begin
+      extractor = Rill::Extractors::SoundCloud.new
+      expect_raises(Rill::MediaUnavailableError, /no tracks/) do
+        extractor.extract(
+          URI.parse("#{server.url}#{soundcloud_set_path}"),
+          Rill::HTTPClient.new,
+        )
+      end
     ensure
       server.close
     end

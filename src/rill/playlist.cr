@@ -41,6 +41,7 @@ module Rill
   class Playlist
     getter id : String?
     getter title : String
+    getter description : String?
     getter webpage_url : URI
     getter extractor : String
     getter entries : Array(PlaylistEntry)
@@ -51,6 +52,7 @@ module Rill
       @extractor : String,
       @entries : Array(PlaylistEntry),
       @id : String? = nil,
+      @description : String? = nil,
     )
     end
 
@@ -72,6 +74,7 @@ module Rill
       json.object do
         json.field "id", id
         json.field "title", title
+        json.field "description", description
         json.field "webpage_url", webpage_url.to_s
         json.field "extractor", extractor
         json.field "entries" do
