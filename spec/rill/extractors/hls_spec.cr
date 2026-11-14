@@ -199,4 +199,67 @@ describe Rill::Extractors::Hls do
       server.close
     end
   end
+
+  it "marks live master variants" do
+    server = TestHTTPServer.new
+    server.on("/master.m3u8") do |_, response|
+      response.print(<<-M3U8)
+        #EXTM3U
+        #EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360
+        low/index.m3u8
+      M3U8
+    end
+    server.on("/low/index.m3u8") do |_, response|
+      response.print(<<-M3U8)
+        #EXTM3U
+        #EXT-X-TARGETDURATION:4
+        #EXTINF:4,
+        seg0.ts
+      M3U8
+    end
+    server.start
+
+    begin
+      media = extractor.extract(URI.parse("#{server.url}/master.m3u8"), Rill::HTTPClient.new)
+      media.validate!
+
+      media.is_live?.should be_true
+      media.formats.size.should eq(1)
+
+      format = media.formats.first
+      format.live?.should be_true
+      format.container.should eq("ts")
+    ensure
+      server.close
+    end
+  end
+
+  it "rejects live master playlists with separate audio" do
+    server = TestHTTPServer.new
+    server.on("/master.m3u8") do |_, response|
+      response.print(<<-M3U8)
+        #EXTM3U
+        #EXT-X-MEDIA:TYPE=AUDIO,GROUP-ID="aud",NAME="English",URI="audio/en.m3u8"
+        #EXT-X-STREAM-INF:BANDWIDTH=2400000,RESOLUTION=1280x720,AUDIO="aud"
+        high/index.m3u8
+      M3U8
+    end
+    server.on("/high/index.m3u8") do |_, response|
+      response.print(<<-M3U8)
+        #EXTM3U
+        #EXT-X-TARGETDURATION:4
+        #EXTINF:4,
+        seg0.ts
+      M3U8
+    end
+    server.start
+
+    begin
+      expect_raises(Rill::UnsupportedManifestError, /live HLS with separate audio/) do
+        extractor.extract(URI.parse("#{server.url}/master.m3u8"), Rill::HTTPClient.new)
+      end
+    ensure
+      server.close
+    end
+  end
 end

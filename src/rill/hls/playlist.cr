@@ -37,12 +37,14 @@ module Rill::Hls
     getter duration : Float64
     getter title : String?
     getter byte_range : ByteRange?
+    getter? discontinuity : Bool
 
     def initialize(
       @url : URI,
       @duration : Float64 = 0.0,
       @title : String? = nil,
       @byte_range : ByteRange? = nil,
+      @discontinuity : Bool = false,
     )
     end
   end
@@ -75,6 +77,9 @@ module Rill::Hls
     getter duration_seconds : Float64
     getter ended : Bool
     getter encrypted : Bool
+    getter target_duration : Float64?
+    getter media_sequence : Int64
+    getter discontinuity_sequence : Int64
 
     def initialize(
       @segments : Array(Segment),
@@ -83,6 +88,9 @@ module Rill::Hls
       @encrypted : Bool,
       @map_url : URI? = nil,
       @map_byte_range : ByteRange? = nil,
+      @target_duration : Float64? = nil,
+      @media_sequence : Int64 = 0_i64,
+      @discontinuity_sequence : Int64 = 0_i64,
     )
     end
   end

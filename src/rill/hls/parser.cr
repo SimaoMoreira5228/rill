@@ -6,13 +6,17 @@ require "./playlist"
 module Rill::Hls::Parser
   extend self
 
-  STREAM_INF = "#EXT-X-STREAM-INF:"
-  MEDIA      = "#EXT-X-MEDIA:"
-  EXTINF     = "#EXTINF:"
-  KEY        = "#EXT-X-KEY:"
-  MAP        = "#EXT-X-MAP:"
-  BYTERANGE  = "#EXT-X-BYTERANGE:"
-  ENDLIST    = "#EXT-X-ENDLIST"
+  STREAM_INF             = "#EXT-X-STREAM-INF:"
+  MEDIA                  = "#EXT-X-MEDIA:"
+  EXTINF                 = "#EXTINF:"
+  KEY                    = "#EXT-X-KEY:"
+  MAP                    = "#EXT-X-MAP:"
+  BYTERANGE              = "#EXT-X-BYTERANGE:"
+  ENDLIST                = "#EXT-X-ENDLIST"
+  TARGETDURATION         = "#EXT-X-TARGETDURATION:"
+  MEDIA_SEQUENCE         = "#EXT-X-MEDIA-SEQUENCE:"
+  DISCONTINUITY_SEQUENCE = "#EXT-X-DISCONTINUITY-SEQUENCE:"
+  DISCONTINUITY          = "#EXT-X-DISCONTINUITY"
 
   def parse(source : String, base_url : URI) : MultivariantPlaylist | MediaPlaylist
     text = source.lchop('\uFEFF')
@@ -166,6 +170,10 @@ module Rill::Hls::Parser
     pending_duration = 0.0
     pending_title : String? = nil
     pending_range : ByteRange? = nil
+    pending_discontinuity = false
+    target_duration : Float64? = nil
+    media_sequence = 0_i64
+    discontinuity_sequence = 0_i64
 
     lines.each do |line|
       case
@@ -186,6 +194,14 @@ module Rill::Hls::Parser
         end
       when line.starts_with?(BYTERANGE)
         pending_range = parse_byte_range(line[BYTERANGE.size..])
+      when line.starts_with?(TARGETDURATION)
+        target_duration = parse_target_duration(line[TARGETDURATION.size..])
+      when line.starts_with?(MEDIA_SEQUENCE)
+        media_sequence = parse_sequence(line[MEDIA_SEQUENCE.size..], "media sequence")
+      when line.starts_with?(DISCONTINUITY_SEQUENCE)
+        discontinuity_sequence = parse_sequence(line[DISCONTINUITY_SEQUENCE.size..], "discontinuity sequence")
+      when line.starts_with?(DISCONTINUITY)
+        pending_discontinuity = true
       when line.starts_with?(ENDLIST)
         ended = true
       when line.starts_with?('#')
@@ -196,11 +212,13 @@ module Rill::Hls::Parser
           duration: pending_duration,
           title: pending_title,
           byte_range: pending_range,
+          discontinuity: pending_discontinuity,
         )
         duration += pending_duration
         pending_duration = 0.0
         pending_title = nil
         pending_range = nil
+        pending_discontinuity = false
       end
     end
 
@@ -213,7 +231,28 @@ module Rill::Hls::Parser
       encrypted: encrypted,
       map_url: map_url,
       map_byte_range: map_byte_range,
+      target_duration: target_duration,
+      media_sequence: media_sequence,
+      discontinuity_sequence: discontinuity_sequence,
     )
+  end
+
+  private def parse_target_duration(value : String) : Float64
+    duration = value.strip.to_f?
+    unless duration && duration.finite? && duration > 0
+      raise ManifestError.new("invalid HLS target duration: #{value}")
+    end
+
+    duration
+  end
+
+  private def parse_sequence(value : String, label : String) : Int64
+    sequence = value.strip.to_i64?
+    unless sequence && sequence >= 0
+      raise ManifestError.new("invalid HLS #{label}: #{value}")
+    end
+
+    sequence
   end
 
   private def parse_extinf(text : String) : Tuple(Float64, String?)

@@ -33,6 +33,7 @@ module Rill
     getter duration_seconds : Float64?
     getter language : String?
     getter note : String?
+    getter? live : Bool
 
     def initialize(
       @format_id : String,
@@ -53,6 +54,7 @@ module Rill
       @duration_seconds : Float64? = nil,
       @language : String? = nil,
       @note : String? = nil,
+      @live : Bool = false,
     )
     end
 
@@ -76,6 +78,7 @@ module Rill
         json.field "duration_seconds", duration_seconds
         json.field "language", language
         json.field "note", note
+        json.field "live", live?
       end
     end
   end

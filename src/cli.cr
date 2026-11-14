@@ -545,6 +545,7 @@ module Rill::CLI
       if duration = human_duration(media.duration_seconds)
         puts "Duration: #{duration}"
       end
+      puts "Live: yes" if media.is_live?
       puts "Thumbnail: #{media.thumbnail_url}" if media.thumbnail_url
       puts "Webpage: #{media.webpage_url}"
       puts
@@ -563,6 +564,7 @@ module Rill::CLI
     details = [] of String
     details << format.kind.to_s.downcase
     details << format.protocol.to_s.downcase unless format.protocol.http?
+    details << "live" if format.live?
 
     if container = format.container
       details << container

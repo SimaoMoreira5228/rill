@@ -33,21 +33,34 @@ module Rill::Extractors
       end
     end
 
+    private struct VariantProbe
+      getter container : String?
+      getter live : Bool
+
+      def initialize(@container : String?, @live : Bool)
+      end
+    end
+
     private def extract_master(
       playlist : Rill::Hls::MultivariantPlaylist,
       url : URI,
       client : HTTPClient,
     ) : Media
       separate = playlist.variants.any? { |variant| separate_audio?(playlist, variant) }
-      container = separate ? detect_container(client, playlist.variants) : nil
+      probe = probe_variant(client, playlist.variants)
+      container = probe.container
 
       if separate && container.nil?
         raise UnsupportedManifestError.new("cannot determine HLS container for separate audio")
       end
 
+      if probe.live && separate
+        raise UnsupportedManifestError.new("live HLS with separate audio is not supported")
+      end
+
       formats = playlist.variants.map_with_index do |variant, index|
         kind = separate_audio?(playlist, variant) ? FormatKind::Video : FormatKind::Combined
-        format_for_variant(variant, index, kind, container)
+        format_for_variant(variant, index, kind, container, probe.live)
       end
 
       warnings = [] of String
@@ -59,7 +72,7 @@ module Rill::Extractors
         end
 
         audio.each_with_index do |rendition, index|
-          formats << format_for_audio(rendition, index, container)
+          formats << format_for_audio(rendition, index, container, probe.live)
         end
       end
 
@@ -69,6 +82,7 @@ module Rill::Extractors
         extractor: name,
         formats: formats,
         warnings: warnings,
+        is_live: probe.live,
       )
     end
 
@@ -108,22 +122,21 @@ module Rill::Extractors
       end
     end
 
-    private def detect_container(
+    private def probe_variant(
       client : HTTPClient,
       variants : Array(Rill::Hls::Variant),
-    ) : String?
+    ) : VariantProbe
       variants.each do |variant|
         response = client.get(variant.url)
         playlist = Rill::Hls::Parser.parse(response.body, response.url)
         next unless playlist.is_a?(Rill::Hls::MediaPlaylist)
 
-        container = media_container(playlist)
-        return container if container
+        return VariantProbe.new(media_container(playlist), !playlist.ended)
       rescue Rill::Error
         next
       end
 
-      nil
+      VariantProbe.new(nil, false)
     end
 
     private def extract_media(
@@ -131,6 +144,7 @@ module Rill::Extractors
       url : URI,
       playlist_url : URI,
     ) : Media
+      live = !playlist.ended
       format = Format.new(
         format_id: "hls",
         url: playlist_url,
@@ -139,6 +153,7 @@ module Rill::Extractors
         container: media_container(playlist),
         duration_seconds: playlist.duration_seconds,
         note: "HLS",
+        live: live,
       )
 
       Media.new(
@@ -147,6 +162,7 @@ module Rill::Extractors
         duration_seconds: playlist.duration_seconds,
         extractor: name,
         formats: [format],
+        is_live: live,
       )
     end
 
@@ -155,17 +171,19 @@ module Rill::Extractors
       index : Int32,
       kind : FormatKind,
       container : String?,
+      live : Bool,
     ) : Format
       Format.new(
         format_id: "hls-#{index + 1}",
         url: variant.url,
         kind: kind,
         protocol: FormatProtocol::Hls,
-        container: kind == FormatKind::Video ? container : nil,
+        container: container,
         width: variant.width,
         height: variant.height,
         bitrate: variant.bandwidth,
         note: variant.codecs,
+        live: live,
       )
     end
 
@@ -173,6 +191,7 @@ module Rill::Extractors
       rendition : Rill::Hls::Rendition,
       index : Int32,
       container : String?,
+      live : Bool,
     ) : Format
       Format.new(
         format_id: "audio-#{index + 1}",
@@ -182,6 +201,7 @@ module Rill::Extractors
         container: container,
         language: rendition.language,
         note: rendition.name,
+        live: live,
       )
     end
 

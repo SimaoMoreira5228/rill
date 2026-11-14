@@ -133,7 +133,7 @@ module Rill
 
       if format.try(&.protocol.hls?)
         remove_part(part_path)
-        transfer_hls(url, part_path, cancellation, on_progress)
+        transfer_hls(url, part_path, target_path, overwrite, cancellation, on_progress)
       elsif format.try(&.protocol.dash?)
         remove_part(part_path)
         transfer_dash(url, part_path, format.not_nil!.format_id, cancellation, on_progress)
@@ -412,67 +412,6 @@ module Rill
       raise ex
     end
 
-    private def transfer_hls(
-      url : String | URI,
-      part_path : Path,
-      cancellation : Cancellation?,
-      on_progress : Proc(DownloadProgress, Nil)?,
-    ) : Nil
-      response = @http.get(url)
-      playlist = Hls::Parser.parse(response.body, response.url)
-
-      unless playlist.is_a?(Hls::MediaPlaylist)
-        raise UnsupportedManifestError.new("nested HLS master playlists are not supported")
-      end
-
-      validate_hls(playlist)
-      validate_hls_assembly(playlist)
-
-      File.open(part_path, "w+b") do |file|
-        writer = ProgressWriter.new(file, part_path.to_s, 0_i64, cancellation, on_progress)
-        writer.emit(force: true)
-
-        if map_url = playlist.map_url
-          @http.stream_to(map_url, writer)
-        end
-
-        playlist.segments.each do |segment|
-          @http.stream_to(segment.url, writer)
-        end
-
-        writer.emit(force: true)
-      end
-    rescue ex : Rill::Error | IO::Error
-      remove_part(part_path)
-      raise ex
-    end
-
-    private def validate_hls_assembly(playlist : Hls::MediaPlaylist) : Nil
-      extensions = playlist.segments.map do |segment|
-        File.extname(segment.url.path).lchop('.').downcase
-      end
-
-      SegmentAssembly.for_hls(playlist.map_url, extensions)
-    end
-
-    private def validate_hls(playlist : Hls::MediaPlaylist) : Nil
-      if playlist.encrypted
-        raise UnsupportedManifestError.new("encrypted HLS playlists are not supported")
-      end
-
-      unless playlist.ended
-        raise UnsupportedManifestError.new("live HLS playlists are not supported")
-      end
-
-      if playlist.map_byte_range
-        raise UnsupportedManifestError.new("HLS map byte ranges are not supported")
-      end
-
-      if playlist.segments.any? { |segment| segment.byte_range }
-        raise UnsupportedManifestError.new("HLS segment byte ranges are not supported")
-      end
-    end
-
     private def current_offset(part_path : Path) : Int64
       return 0_i64 unless @resume
       return 0_i64 unless File.exists?(part_path)
@@ -660,3 +599,5 @@ module Rill
     end
   end
 end
+
+require "./downloader/hls"

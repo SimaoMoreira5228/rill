@@ -11,6 +11,7 @@ require "../json_value"
 require "../media"
 require "../mime_type"
 require "../timestamp"
+require "./hls"
 
 module Rill::Extractors
   class YouTube < Extractor
@@ -88,7 +89,26 @@ module Rill::Extractors
       },
     )
 
-    CLIENTS = {VISIONOS, TV_SAMSUNG}
+    ANDROID_VR = PlayerClient.new(
+      "android_vr",
+      "28",
+      "1.65.10",
+      "com.google.android.apps.youtube.vr.oculus/1.65.10 " \
+      "(Linux; U; Android 12L; en_US; Quest 3 Build/SQ3A.220605.009.A1) gzip",
+      {
+        "clientName"        => "ANDROID_VR",
+        "clientVersion"     => "1.65.10",
+        "deviceMake"        => "Oculus",
+        "deviceModel"       => "Quest 3",
+        "platform"          => "MOBILE",
+        "osName"            => "Android",
+        "osVersion"         => "12L",
+        "androidSdkVersion" => "32",
+        "gl"                => "US",
+      },
+    )
+
+    CLIENTS = {VISIONOS, ANDROID_VR, TV_SAMSUNG}
 
     SEARCH_CLIENT = PlayerClient.new(
       "web",
@@ -149,7 +169,12 @@ module Rill::Extractors
           end
 
           if details["isLiveContent"]?.try(&.as_bool?)
-            raise MediaUnavailableError.new(url.to_s, "live videos are not supported")
+            if hls_url = live_hls_url(payload)
+              return build_live_media(details, payload, hls_url, video_id, url, client)
+            end
+
+            errors << "#{player_client.name}: live stream has no HLS manifest"
+            next
           end
 
           formats = formats_from(payload["streamingData"]?)
@@ -159,10 +184,8 @@ module Rill::Extractors
           end
 
           return build_media(details, payload, formats, video_id, url)
-        rescue ex : MediaUnavailableError
+        rescue ex : Rill::Error
           errors << "#{player_client.name}: #{ex.message}"
-        rescue ex : HTTPError
-          errors << "#{player_client.name}: HTTP #{ex.status.code}"
         end
       end
 
@@ -278,6 +301,41 @@ module Rill::Extractors
         upload_date: upload_date(payload),
         extractor: name,
         formats: formats,
+      )
+    end
+
+    private def live_hls_url(payload : Hash(String, JSON::Any)) : URI?
+      streaming = payload["streamingData"]?.try(&.as_h?)
+      return nil unless streaming
+
+      HttpUrl.absolute(JsonValue.string(streaming["hlsManifestUrl"]?))
+    end
+
+    private def build_live_media(
+      details : Hash(String, JSON::Any),
+      payload : Hash(String, JSON::Any),
+      hls_url : URI,
+      video_id : String,
+      url : URI,
+      client : HTTPClient,
+    ) : Media
+      hls_media = Rill::Extractors::Hls.new.extract(hls_url, client)
+      live = hls_media.is_live?
+      duration = live ? nil : JsonValue.seconds(details["lengthSeconds"]?)
+
+      Media.new(
+        id: JsonValue.string(details["videoId"]?) || video_id,
+        title: JsonValue.string(details["title"]?) || video_id,
+        description: JsonValue.string(details["shortDescription"]?),
+        webpage_url: url,
+        uploader: JsonValue.string(details["author"]?),
+        duration_seconds: duration,
+        thumbnail_url: thumbnail_url(details),
+        upload_date: upload_date(payload),
+        extractor: name,
+        formats: hls_media.formats,
+        warnings: hls_media.warnings,
+        is_live: live,
       )
     end
 

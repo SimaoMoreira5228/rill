@@ -18,6 +18,7 @@ module Rill
     getter extractor : String
     getter formats : Array(Format)
     getter warnings : Array(String)
+    getter? is_live : Bool
 
     def initialize(
       @title : String,
@@ -31,6 +32,7 @@ module Rill
       @thumbnail_url : URI? = nil,
       @upload_date : String? = nil,
       @warnings : Array(String) = [] of String,
+      @is_live : Bool = false,
     )
     end
 
@@ -62,6 +64,7 @@ module Rill
         json.field "thumbnail_url", thumbnail_url.try(&.to_s)
         json.field "upload_date", upload_date
         json.field "extractor", extractor
+        json.field "is_live", is_live?
         json.field "formats" do
           json.array do
             formats.each(&.to_json(json))

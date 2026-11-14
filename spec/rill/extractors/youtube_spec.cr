@@ -94,7 +94,7 @@ describe Rill::Extractors::YouTube do
     end
   end
 
-  it "falls back to tv_samsung when visionos is unplayable" do
+  it "falls back through clients when visionos is unplayable" do
     fallback = %({
       "playabilityStatus": {"status": "OK"},
       "videoDetails": {
@@ -127,7 +127,7 @@ describe Rill::Extractors::YouTube do
       client_name = request.headers["X-YouTube-Client-Name"]
       clients << client_name
 
-      if client_name == "101"
+      if client_name == "101" || client_name == "28"
         response.print(youtube_body("login_required.json"))
       else
         response.print(fallback)
@@ -144,7 +144,7 @@ describe Rill::Extractors::YouTube do
 
       media.title.should eq("Fallback")
       media.formats.size.should eq(1)
-      clients.should eq(["101", "7"])
+      clients.should eq(["101", "28", "7"])
     ensure
       server.close
     end
@@ -165,14 +165,68 @@ describe Rill::Extractors::YouTube do
     end
   end
 
-  it "reports live videos as unavailable" do
+  it "extracts live HLS variants" do
+    server = TestHTTPServer.new
+    player = %({
+      "playabilityStatus": {"status": "OK"},
+      "videoDetails": {
+        "videoId": "live1234567",
+        "title": "Live stream",
+        "author": "Example",
+        "lengthSeconds": "0",
+        "isLiveContent": true
+      },
+      "streamingData": {
+        "hlsManifestUrl": "#{server.url}/live/master.m3u8"
+      }
+    })
+    server.on("/youtubei/v1/player") { |_, response| response.print(player) }
+    server.on("/live/master.m3u8") do |_, response|
+      response.print(<<-M3U8)
+        #EXTM3U
+        #EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360
+        low/index.m3u8
+      M3U8
+    end
+    server.on("/live/low/index.m3u8") do |_, response|
+      response.print(<<-M3U8)
+        #EXTM3U
+        #EXT-X-TARGETDURATION:4
+        #EXTINF:4,
+        seg0.ts
+      M3U8
+    end
+    server.start
+
+    begin
+      extractor = Rill::Extractors::YouTube.new(server.url)
+      media = extractor.extract(
+        URI.parse("https://www.youtube.com/watch?v=live1234567"),
+        Rill::HTTPClient.new,
+      )
+      media.validate!
+
+      media.is_live?.should be_true
+      media.title.should eq("Live stream")
+      media.formats.size.should eq(1)
+
+      format = media.formats.first
+      format.live?.should be_true
+      format.container.should eq("ts")
+      format.url.to_s.should eq("#{server.url}/live/low/index.m3u8")
+    ensure
+      server.close
+    end
+  end
+
+  it "reports live videos without HLS as unavailable" do
     server = TestHTTPServer.new
     server.on("/youtubei/v1/player") { |_, response| response.print(youtube_body("live.json")) }
     server.start
 
     begin
       extractor = Rill::Extractors::YouTube.new(server.url)
-      expect_raises(Rill::MediaUnavailableError, /live videos/) do
+      expect_raises(Rill::MediaUnavailableError, /live stream has no HLS manifest/) do
         extractor.extract(URI.parse("https://www.youtube.com/watch?v=live1234567"), Rill::HTTPClient.new)
       end
     ensure

@@ -188,10 +188,26 @@ describe Rill::Downloader do
     end
   end
 
-  it "rejects live HLS playlists" do
+  it "downloads a live HLS playlist from the live edge until it ends" do
     server = TestHTTPServer.new
+    requests = 0
     server.on("/hls/media.m3u8") do |_, response|
-      response.print("#EXTM3U\n#EXTINF:4,\nseg.ts\n")
+      requests += 1
+      response.content_type = "application/vnd.apple.mpegurl"
+      response.print(case requests
+      when 1
+        "#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\nseg0.ts\n#EXTINF:1,\nseg1.ts\n"
+      when 2
+        "#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\nseg0.ts\n#EXTINF:1,\nseg1.ts\n#EXTINF:1,\nseg2.ts\n"
+      else
+        "#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXTINF:1,\nseg0.ts\n#EXTINF:1,\nseg1.ts\n#EXTINF:1,\nseg2.ts\n#EXTINF:1,\nseg3.ts\n#EXT-X-ENDLIST\n"
+      end)
+    end
+    {"seg0.ts" => "AAAA", "seg1.ts" => "BBBB", "seg2.ts" => "CCCC", "seg3.ts" => "DDDD"}.each do |name, body|
+      server.on("/hls/#{name}") do |_, response|
+        response.content_length = body.bytesize
+        response.print(body)
+      end
     end
     server.start
 
@@ -199,10 +215,9 @@ describe Rill::Downloader do
       with_temp_dir do |directory|
         target = directory / "media.ts"
 
-        expect_raises(Rill::UnsupportedManifestError, /live HLS/) do
-          downloader.download(hls_format("#{server.url}/hls/media.m3u8"), target)
-        end
-        File.exists?(target).should be_false
+        downloader.download(hls_format("#{server.url}/hls/media.m3u8"), target)
+
+        File.read(target).should eq("BBBBCCCCDDDD")
         File.exists?(Path.new("#{target}.part")).should be_false
       end
     ensure

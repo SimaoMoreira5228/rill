@@ -62,8 +62,32 @@ describe Rill::Hls::Parser do
     playlist.segments[1].title.should be_nil
     playlist.duration_seconds.should be_close(19.9, 0.001)
     playlist.map_url.not_nil!.to_s.should eq("https://example.com/hls/init.mp4")
+    playlist.target_duration.should eq(10.0)
+    playlist.media_sequence.should eq(0)
+    playlist.discontinuity_sequence.should eq(0)
     playlist.ended.should be_true
     playlist.encrypted.should be_false
+  end
+
+  it "parses live sequence and discontinuity tags" do
+    playlist = parse_playlist(<<-M3U8).as(Rill::Hls::MediaPlaylist)
+      #EXTM3U
+      #EXT-X-TARGETDURATION:6
+      #EXT-X-MEDIA-SEQUENCE:42
+      #EXT-X-DISCONTINUITY-SEQUENCE:3
+      #EXTINF:6,
+      a.ts
+      #EXT-X-DISCONTINUITY
+      #EXTINF:6,
+      b.ts
+    M3U8
+
+    playlist.target_duration.should eq(6.0)
+    playlist.media_sequence.should eq(42)
+    playlist.discontinuity_sequence.should eq(3)
+    playlist.segments[0].discontinuity?.should be_false
+    playlist.segments[1].discontinuity?.should be_true
+    playlist.ended.should be_false
   end
 
   it "marks encrypted playlists" do
