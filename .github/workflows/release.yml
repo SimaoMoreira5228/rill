@@ -149,15 +149,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          registry-url: https://registry.npmjs.org
 
       - name: Install current npm
         run: npm install --global npm@latest
 
       - name: Publish npm packages
         run: |
+          unset NODE_AUTH_TOKEN NPM_CONFIG_USERCONFIG
           for package in dist/*.tgz; do
-            npm publish "$package" --access public
+            npm publish "./$package" --access public
           done
 
       - uses: crystal-lang/install-crystal@v1
