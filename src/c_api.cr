@@ -1,4 +1,3 @@
-require "c/sched"
 require "c/stdlib"
 
 require "./rill"
@@ -45,7 +44,7 @@ module Rill::CAPI
       when STATE_SHUTDOWN
         return Status::OK
       when STATE_SHUTTING_DOWN
-        LibC.sched_yield
+        Crystal::System::Thread.yield_current
       when STATE_READY
         if @@state.compare_and_set(STATE_READY, STATE_SHUTTING_DOWN).last
           WorkerPool.shutdown
@@ -93,7 +92,7 @@ module Rill::CAPI
       when STATE_FAILED, STATE_SHUTDOWN
         return Status::INTERNAL_ERROR
       when STATE_INITIALIZING
-        LibC.sched_yield
+        Crystal::System::Thread.yield_current
       else
         return Status::INTERNAL_ERROR
       end

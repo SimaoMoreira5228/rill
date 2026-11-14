@@ -1,5 +1,3 @@
-require "c/pthread"
-
 require "../cancellation"
 require "../client"
 require "../download_options"
@@ -13,6 +11,7 @@ require "../request_options"
 require "./job"
 require "./memory"
 require "./status"
+require "./sync"
 
 module Rill::CAPI::WorkerPool
   extend self
@@ -88,9 +87,9 @@ module Rill::CAPI::WorkerPool
   class Pool
     @head : JobPtr
     @tail : JobPtr
-    @mutex : LibC::PthreadMutexT*
-    @cond : LibC::PthreadCondT*
-    @done_cond : LibC::PthreadCondT*
+    @mutex : Sync::Mutex*
+    @cond : Sync::Cond*
+    @done_cond : Sync::Cond*
 
     def initialize(@worker_count : Int32)
       @head = JobPtr.null
@@ -101,6 +100,10 @@ module Rill::CAPI::WorkerPool
       @mutex = allocate_mutex
       @cond = allocate_cond
       @done_cond = allocate_cond
+
+      if @mutex.null? || @cond.null? || @done_cond.null?
+        raise "failed to allocate sync primitives"
+      end
     end
 
     def start : Nil
@@ -114,7 +117,7 @@ module Rill::CAPI::WorkerPool
 
       unless @shutdown
         enqueue(job)
-        LibC.pthread_cond_signal(@cond)
+        Sync.signal(@cond)
         unlock
         return
       end
@@ -128,15 +131,16 @@ module Rill::CAPI::WorkerPool
 
       unless @shutdown
         @shutdown = true
-        LibC.pthread_cond_broadcast(@cond)
+        Sync.broadcast(@cond)
         fail_pending
       end
 
       while @running > 0
-        LibC.pthread_cond_wait(@done_cond, @mutex)
+        Sync.wait(@done_cond, @mutex)
       end
 
       unlock
+      destroy_sync
     end
 
     private def work : Nil
@@ -158,7 +162,7 @@ module Rill::CAPI::WorkerPool
       lock
 
       while @head.null? && !@shutdown
-        LibC.pthread_cond_wait(@cond, @mutex)
+        Sync.wait(@cond, @mutex)
       end
 
       job = @head
@@ -356,50 +360,44 @@ module Rill::CAPI::WorkerPool
 
         dequeue
 
-        LibC.pthread_mutex_lock(job.value.mutex)
+        Sync.lock(job.value.mutex)
         job.value.status = Status::SHUTDOWN
         if job.value.kind == Rill::CAPI::Kind::DOWNLOAD
           job.value.download_state = Rill::CAPI::DownloadState::CANCELLED
         end
         job.value.done = 1
-        LibC.pthread_cond_signal(job.value.cond)
-        LibC.pthread_mutex_unlock(job.value.mutex)
+        Sync.signal(job.value.cond)
+        Sync.unlock(job.value.mutex)
       end
     end
 
     private def worker_finished : Nil
       lock
       @running -= 1
-      LibC.pthread_cond_broadcast(@done_cond)
+      Sync.broadcast(@done_cond)
       unlock
     end
 
     private def lock : Nil
-      LibC.pthread_mutex_lock(@mutex)
+      Sync.lock(@mutex)
     end
 
     private def unlock : Nil
-      LibC.pthread_mutex_unlock(@mutex)
+      Sync.unlock(@mutex)
     end
 
-    private def allocate_mutex : LibC::PthreadMutexT*
-      pointer = LibC.malloc(sizeof(LibC::PthreadMutexT)).as(LibC::PthreadMutexT*)
-      raise "failed to allocate pthread mutex" if pointer.null?
-
-      status = LibC.pthread_mutex_init(pointer, Pointer(LibC::PthreadMutexattrT).null)
-      raise "failed to initialize pthread mutex" unless status == 0
-
-      pointer
+    private def allocate_mutex : Sync::Mutex*
+      Sync.create_mutex
     end
 
-    private def allocate_cond : LibC::PthreadCondT*
-      pointer = LibC.malloc(sizeof(LibC::PthreadCondT)).as(LibC::PthreadCondT*)
-      raise "failed to allocate pthread condition" if pointer.null?
+    private def allocate_cond : Sync::Cond*
+      Sync.create_cond
+    end
 
-      status = LibC.pthread_cond_init(pointer, Pointer(LibC::PthreadCondattrT).null)
-      raise "failed to initialize pthread condition" unless status == 0
-
-      pointer
+    private def destroy_sync : Nil
+      Sync.destroy_cond(@done_cond)
+      Sync.destroy_cond(@cond)
+      Sync.destroy_mutex(@mutex)
     end
   end
 end

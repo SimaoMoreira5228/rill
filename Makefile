@@ -3,6 +3,9 @@ CC ?= cc
 CXX ?= c++
 BUN ?= bun
 RUST_FEATURES ?=
+TARGETS ?= x86_64-unknown-linux-musl aarch64-unknown-linux-gnu \
+           aarch64-unknown-linux-musl x86_64-apple-darwin \
+           aarch64-apple-darwin x86_64-windows-msvc
 MESON ?= meson
 NATIVE_BUILD ?= build/native
 FFMPEG ?= subproject
@@ -19,7 +22,7 @@ LIBRARY := build/librill.so
 C_LINK_FLAGS := -Lbuild -l:librill.so -Wl,-rpath,$(CURDIR)/build
 endif
 
-.PHONY: all cli lib media-helper media-helper-system media-helper-static test test-media test-c-api test-cpp test-rust test-bun test-node clean
+.PHONY: all cli lib media-helper media-helper-system media-helper-static test test-media test-c-api test-cpp test-rust test-bun test-node check-targets clean
 
 all: cli lib
 
@@ -54,6 +57,13 @@ test:
 
 test-media: media-helper
 	$(CRYSTAL) spec spec/rill/media_muxer_spec.cr
+
+check-targets:
+	@set -e; for target in $(TARGETS); do \
+		echo "$$target"; \
+		$(CRYSTAL) build --no-codegen --target $$target src/cli.cr; \
+		$(CRYSTAL) build --no-codegen --target $$target src/c_api.cr; \
+	done
 
 test-c-api: lib
 	mkdir -p bin build

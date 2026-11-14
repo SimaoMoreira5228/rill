@@ -1,7 +1,6 @@
-require "c/pthread"
-
 require "./status"
 require "./memory"
+require "./sync"
 
 lib LibRillJob
   struct Job
@@ -20,8 +19,8 @@ lib LibRillJob
     downloaded : Int64
     total : Int64
     cancel_requested : Int32
-    mutex : LibC::PthreadMutexT*
-    cond : LibC::PthreadCondT*
+    mutex : Rill::CAPI::Sync::Mutex*
+    cond : Rill::CAPI::Sync::Cond*
   end
 end
 
@@ -110,15 +109,15 @@ module Rill::CAPI::Job
     error_message : UInt8*,
     error_code : UInt8*,
   ) : Nil
-    LibC.pthread_mutex_lock(job.value.mutex)
+    Sync.lock(job.value.mutex)
     job.value.status = status
     job.value.json = json
     job.value.error_message = error_message
     job.value.error_code = error_code
     job.value.done = 1
-    LibC.pthread_cond_signal(job.value.cond)
+    Sync.signal(job.value.cond)
     abandoned = job.value.abandoned != 0
-    LibC.pthread_mutex_unlock(job.value.mutex)
+    Sync.unlock(job.value.mutex)
 
     release(job) if abandoned
   end
@@ -130,44 +129,44 @@ module Rill::CAPI::Job
     error_message : UInt8*,
     error_code : UInt8*,
   ) : Nil
-    LibC.pthread_mutex_lock(job.value.mutex)
+    Sync.lock(job.value.mutex)
     job.value.status = status
     job.value.download_state = state
     job.value.error_message = error_message
     job.value.error_code = error_code
     job.value.done = 1
-    LibC.pthread_cond_signal(job.value.cond)
+    Sync.signal(job.value.cond)
     abandoned = job.value.abandoned != 0
-    LibC.pthread_mutex_unlock(job.value.mutex)
+    Sync.unlock(job.value.mutex)
 
     release(job) if abandoned
   end
 
   def mark_running(job : JobPtr) : Nil
-    LibC.pthread_mutex_lock(job.value.mutex)
+    Sync.lock(job.value.mutex)
     if job.value.done == 0
       job.value.download_state = Rill::CAPI::DownloadState::RUNNING
     end
-    LibC.pthread_mutex_unlock(job.value.mutex)
+    Sync.unlock(job.value.mutex)
   end
 
   def update_progress(job : JobPtr, downloaded : Int64, total : Int64?) : Nil
-    LibC.pthread_mutex_lock(job.value.mutex)
+    Sync.lock(job.value.mutex)
     if job.value.done == 0
       job.value.downloaded = downloaded
       job.value.total = total if total
     end
-    LibC.pthread_mutex_unlock(job.value.mutex)
+    Sync.unlock(job.value.mutex)
   end
 
   def cancel(job : JobPtr) : Int32
     return Status::INVALID_ARGUMENT if job.null?
 
-    LibC.pthread_mutex_lock(job.value.mutex)
+    Sync.lock(job.value.mutex)
     if job.value.done == 0
       job.value.cancel_requested = 1
     end
-    LibC.pthread_mutex_unlock(job.value.mutex)
+    Sync.unlock(job.value.mutex)
 
     Status::OK
   end
@@ -180,11 +179,11 @@ module Rill::CAPI::Job
   ) : Int32
     return Status::INVALID_ARGUMENT if job.null?
 
-    LibC.pthread_mutex_lock(job.value.mutex)
+    Sync.lock(job.value.mutex)
     state = job.value.download_state
     downloaded = job.value.downloaded
     total = job.value.total
-    LibC.pthread_mutex_unlock(job.value.mutex)
+    Sync.unlock(job.value.mutex)
 
     state_out.value = state unless state_out.null?
     downloaded_out.value = downloaded unless downloaded_out.null?
@@ -196,13 +195,13 @@ module Rill::CAPI::Job
   def error_message(job : JobPtr) : UInt8*
     return null_pointer if job.null?
 
-    LibC.pthread_mutex_lock(job.value.mutex)
+    Sync.lock(job.value.mutex)
     pointer = if job.value.error_message.null?
                 null_pointer
               else
                 Memory.copy_string(String.new(job.value.error_message))
               end
-    LibC.pthread_mutex_unlock(job.value.mutex)
+    Sync.unlock(job.value.mutex)
 
     pointer
   end
@@ -210,13 +209,13 @@ module Rill::CAPI::Job
   def error_code(job : JobPtr) : UInt8*
     return null_pointer if job.null?
 
-    LibC.pthread_mutex_lock(job.value.mutex)
+    Sync.lock(job.value.mutex)
     pointer = if job.value.error_code.null?
                 null_pointer
               else
                 Memory.copy_string(String.new(job.value.error_code))
               end
-    LibC.pthread_mutex_unlock(job.value.mutex)
+    Sync.unlock(job.value.mutex)
 
     pointer
   end
@@ -229,9 +228,9 @@ module Rill::CAPI::Job
   ) : Int32
     return Status::INVALID_ARGUMENT if job.null?
 
-    LibC.pthread_mutex_lock(job.value.mutex)
+    Sync.lock(job.value.mutex)
     while job.value.done == 0
-      LibC.pthread_cond_wait(job.value.cond, job.value.mutex)
+      Sync.wait(job.value.cond, job.value.mutex)
     end
 
     status = job.value.status
@@ -251,20 +250,20 @@ module Rill::CAPI::Job
       job.value.error_code = null_pointer
     end
 
-    LibC.pthread_mutex_unlock(job.value.mutex)
+    Sync.unlock(job.value.mutex)
     status
   end
 
   def free(job : JobPtr) : Nil
     return if job.null?
 
-    LibC.pthread_mutex_lock(job.value.mutex)
+    Sync.lock(job.value.mutex)
     unless job.value.done != 0
       job.value.abandoned = 1
-      LibC.pthread_mutex_unlock(job.value.mutex)
+      Sync.unlock(job.value.mutex)
       return
     end
-    LibC.pthread_mutex_unlock(job.value.mutex)
+    Sync.unlock(job.value.mutex)
 
     release(job)
   end
@@ -291,10 +290,8 @@ module Rill::CAPI::Job
     Memory.free(job.value.error_message)
     Memory.free(job.value.error_code)
 
-    LibC.pthread_cond_destroy(job.value.cond)
-    LibC.pthread_mutex_destroy(job.value.mutex)
-    LibC.free(job.value.cond)
-    LibC.free(job.value.mutex)
+    Sync.destroy_cond(job.value.cond)
+    Sync.destroy_mutex(job.value.mutex)
     LibC.free(job)
   end
 
@@ -314,38 +311,17 @@ module Rill::CAPI::Job
     job.value.downloaded = 0_i64
     job.value.total = 0_i64
     job.value.cancel_requested = 0
-    job.value.mutex = Pointer(LibC::PthreadMutexT).null
-    job.value.cond = Pointer(LibC::PthreadCondT).null
+    job.value.mutex = Pointer(Sync::Mutex).null
+    job.value.cond = Pointer(Sync::Cond).null
   end
 
   private def initialize_sync(job : JobPtr) : Bool
-    mutex = LibC.malloc(sizeof(LibC::PthreadMutexT)).as(LibC::PthreadMutexT*)
+    mutex = Sync.create_mutex
     return false if mutex.null?
 
-    mutex_status = LibC.pthread_mutex_init(
-      mutex,
-      Pointer(LibC::PthreadMutexattrT).null,
-    )
-    if mutex_status != 0
-      LibC.free(mutex)
-      return false
-    end
-
-    cond = LibC.malloc(sizeof(LibC::PthreadCondT)).as(LibC::PthreadCondT*)
+    cond = Sync.create_cond
     if cond.null?
-      LibC.pthread_mutex_destroy(mutex)
-      LibC.free(mutex)
-      return false
-    end
-
-    cond_status = LibC.pthread_cond_init(
-      cond,
-      Pointer(LibC::PthreadCondattrT).null,
-    )
-    if cond_status != 0
-      LibC.free(cond)
-      LibC.pthread_mutex_destroy(mutex)
-      LibC.free(mutex)
+      Sync.destroy_mutex(mutex)
       return false
     end
 
