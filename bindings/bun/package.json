@@ -3,6 +3,13 @@
   "version": "2026.11.14",
   "type": "module",
   "main": "index.ts",
+  "files": [
+    "index.ts",
+    "extract-worker.ts"
+  ],
+  "engines": {
+    "bun": ">=1.1.30"
+  },
   "scripts": {
     "test": "bun run smoke.ts"
   }

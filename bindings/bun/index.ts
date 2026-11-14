@@ -82,8 +82,12 @@ function freePointer(pointer: number | bigint | null): void {
   }
 }
 
+function stringPointer(value: string): Buffer {
+  return Buffer.from(`${value}\0`);
+}
+
 function optionsPointer(value?: string): Buffer | null {
-  return value === undefined ? null : Buffer.from(`${value}\0`);
+  return value === undefined ? null : stringPointer(value);
 }
 
 export function abiVersion(): number {
@@ -111,7 +115,7 @@ export function extractJsonSync(url: string, options?: string): string {
 
   const status = Number(
     symbols.rill_extract_json(
-      url,
+      stringPointer(url),
       optionsPointer(options),
       ptr(jsonOut),
       ptr(errorOut),
@@ -150,7 +154,7 @@ export async function extractJson(url: string, options?: string): Promise<string
       } else {
         reject(
           new RillError(
-            message.error.status ?? 2,
+            message.error.code ?? 2,
             message.error.message,
             message.error.kind,
           ),
@@ -177,12 +181,18 @@ export async function extractJson(url: string, options?: string): Promise<string
 }
 
 export class Download {
-  readonly #handle: number;
+  #handle: number;
+  #closed = false;
 
   constructor(url: string, output: string, options?: string) {
     const errorOut = new BigUint64Array(1);
     const handle = Number(
-      symbols.rill_download_start(url, output, optionsPointer(options), ptr(errorOut)),
+      symbols.rill_download_start(
+        stringPointer(url),
+        stringPointer(output),
+        optionsPointer(options),
+        ptr(errorOut),
+      ),
     );
 
     if (handle === 0) {
@@ -195,6 +205,8 @@ export class Download {
   }
 
   poll(): DownloadProgress {
+    this.#ensureOpen();
+
     const stateOut = new Int32Array(1);
     const downloadedOut = new BigInt64Array(1);
     const totalOut = new BigInt64Array(1);
@@ -220,6 +232,8 @@ export class Download {
   }
 
   cancel(): void {
+    this.#ensureOpen();
+
     const status = Number(symbols.rill_download_cancel(this.#handle));
     if (status !== 0) {
       throw new RillError(status, "rill_download_cancel failed");
@@ -227,6 +241,8 @@ export class Download {
   }
 
   error(): string {
+    this.#ensureOpen();
+
     const pointer = symbols.rill_download_error(this.#handle);
     const message = readString(pointer);
     freePointer(pointer);
@@ -234,6 +250,8 @@ export class Download {
   }
 
   errorCode(): string {
+    this.#ensureOpen();
+
     const pointer = symbols.rill_download_error_code(this.#handle);
     const code = readString(pointer);
     freePointer(pointer);
@@ -271,6 +289,17 @@ export class Download {
   }
 
   close(): void {
+    if (this.#closed) {
+      return;
+    }
+
+    this.#closed = true;
     symbols.rill_download_free(this.#handle);
+  }
+
+  #ensureOpen(): void {
+    if (this.#closed) {
+      throw new Error("download is closed");
+    }
   }
 }

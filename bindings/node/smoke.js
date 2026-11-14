@@ -33,6 +33,9 @@ const rill = require("./index.js");
     assert.strictEqual(download.error(), "");
     assert.strictEqual(fs.readFileSync(output, "utf8"), "c-api-download");
     download.close();
+    download.close();
+
+    assert.throws(() => download.poll(), /download is closed/);
 
     if (slowUrl && cancelOutput) {
       const cancellable = new rill.Download(slowUrl, cancelOutput);

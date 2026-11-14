@@ -48,6 +48,15 @@ if (url && output) {
   assert(download.error() === "", "download error");
   assert((await Bun.file(output).text()) === "c-api-download", "download output");
   download.close();
+  download.close();
+
+  let closedError = false;
+  try {
+    download.poll();
+  } catch (error) {
+    closedError = error instanceof Error && error.message === "download is closed";
+  }
+  assert(closedError, "poll after close");
 
   if (slowUrl && cancelOutput) {
     const cancellable = new Download(slowUrl, cancelOutput);

@@ -16,18 +16,22 @@ class Download {
   }
 
   poll() {
+    this.ensureOpen();
     return addon.downloadPoll(this.handle);
   }
 
   cancel() {
+    this.ensureOpen();
     addon.downloadCancel(this.handle);
   }
 
   error() {
+    this.ensureOpen();
     return addon.downloadError(this.handle);
   }
 
   errorCode() {
+    this.ensureOpen();
     return addon.downloadErrorCode(this.handle);
   }
 
@@ -35,6 +39,12 @@ class Download {
     if (this.handle) {
       addon.downloadClose(this.handle);
       this.handle = null;
+    }
+  }
+
+  ensureOpen() {
+    if (!this.handle) {
+      throw new Error("download is closed");
     }
   }
 
