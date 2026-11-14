@@ -13,6 +13,7 @@ require "./hls/parser"
 require "./hls/playlist"
 require "./http_client"
 require "./media_muxer"
+require "./segment_assembly"
 require "./request_options"
 
 module Rill
@@ -385,6 +386,13 @@ module Rill
         raise ManifestError.new("DASH representation #{reference} has no segments")
       end
 
+      mime = representation.mime
+      unless mime
+        raise UnsupportedManifestError.new("DASH representation #{reference} has no media type")
+      end
+
+      SegmentAssembly.for_dash(mime, !init_url.nil?)
+
       File.open(part_path, "w+b") do |file|
         writer = ProgressWriter.new(file, part_path.to_s, 0_i64, cancellation, on_progress)
         writer.emit(force: true)
@@ -418,6 +426,7 @@ module Rill
       end
 
       validate_hls(playlist)
+      validate_hls_assembly(playlist)
 
       File.open(part_path, "w+b") do |file|
         writer = ProgressWriter.new(file, part_path.to_s, 0_i64, cancellation, on_progress)
@@ -436,6 +445,14 @@ module Rill
     rescue ex : Rill::Error | IO::Error
       remove_part(part_path)
       raise ex
+    end
+
+    private def validate_hls_assembly(playlist : Hls::MediaPlaylist) : Nil
+      extensions = playlist.segments.map do |segment|
+        File.extname(segment.url.path).lchop('.').downcase
+      end
+
+      SegmentAssembly.for_hls(playlist.map_url, extensions)
     end
 
     private def validate_hls(playlist : Hls::MediaPlaylist) : Nil

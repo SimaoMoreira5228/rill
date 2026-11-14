@@ -48,4 +48,39 @@ describe Rill::Downloader do
       server.close
     end
   end
+  it "rejects fragmented MP4 representations without an init section" do
+    manifest = <<-XML
+      <MPD mediaPresentationDuration="PT4S">
+        <Period>
+          <AdaptationSet mimeType="video/mp4">
+            <SegmentTemplate duration="4" media="seg-$Number$.m4s"/>
+            <Representation id="v" bandwidth="100000"/>
+          </AdaptationSet>
+        </Period>
+      </MPD>
+    XML
+
+    server = TestHTTPServer.new
+    server.on("/manifest.mpd") { |_, response| response.print(manifest) }
+    server.start
+
+    begin
+      with_temp_dir do |directory|
+        target = directory / "video.mp4"
+        format = Rill::Format.new(
+          format_id: "v",
+          url: URI.parse("#{server.url}/manifest.mpd"),
+          kind: Rill::FormatKind::Video,
+          protocol: Rill::FormatProtocol::Dash,
+        )
+
+        expect_raises(Rill::UnsupportedManifestError, /initialization segment/) do
+          downloader.download(format, target)
+        end
+        File.exists?(target).should be_false
+      end
+    ensure
+      server.close
+    end
+  end
 end

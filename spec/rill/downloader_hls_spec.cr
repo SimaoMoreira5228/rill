@@ -177,4 +177,65 @@ describe Rill::Downloader do
       server.close
     end
   end
+  it "rejects an unverified segment extension" do
+    server = TestHTTPServer.new
+    server.on("/hls/media.m3u8") do |_, response|
+      response.print("#EXTM3U\n#EXTINF:4,\nseg.bin\n#EXT-X-ENDLIST\n")
+    end
+    server.start
+
+    begin
+      with_temp_dir do |directory|
+        target = directory / "media.bin"
+
+        expect_raises(Rill::UnsupportedManifestError, /not verified/) do
+          downloader.download(hls_format("#{server.url}/hls/media.m3u8"), target)
+        end
+        File.exists?(target).should be_false
+        server.requests.size.should eq(1)
+      end
+    ensure
+      server.close
+    end
+  end
+
+  it "requires an init section for fragmented MP4 segments" do
+    server = TestHTTPServer.new
+    server.on("/hls/media.m3u8") do |_, response|
+      response.print("#EXTM3U\n#EXTINF:4,\nseg.m4s\n#EXT-X-ENDLIST\n")
+    end
+    server.start
+
+    begin
+      with_temp_dir do |directory|
+        target = directory / "media.mp4"
+
+        expect_raises(Rill::UnsupportedManifestError, /not verified/) do
+          downloader.download(hls_format("#{server.url}/hls/media.m3u8"), target)
+        end
+      end
+    ensure
+      server.close
+    end
+  end
+
+  it "rejects a map with transport stream segments" do
+    server = TestHTTPServer.new
+    server.on("/hls/media.m3u8") do |_, response|
+      response.print("#EXTM3U\n#EXT-X-MAP:URI=\"init.mp4\"\n#EXTINF:4,\nseg.ts\n#EXT-X-ENDLIST\n")
+    end
+    server.start
+
+    begin
+      with_temp_dir do |directory|
+        target = directory / "media.ts"
+
+        expect_raises(Rill::UnsupportedManifestError, /fragmented MP4 layout/) do
+          downloader.download(hls_format("#{server.url}/hls/media.m3u8"), target)
+        end
+      end
+    ensure
+      server.close
+    end
+  end
 end
