@@ -20,6 +20,8 @@ jobs:
             key: darwin-x64
           - os: macos-15
             key: darwin-arm64
+          - os: windows-latest
+            key: win32-x64
 
     runs-on: ${{ matrix.os }}
 
@@ -40,6 +42,16 @@ jobs:
         run: |
           brew install libgc openssl@3 libxml2 pcre2 meson ninja dylibbundler
 
+      - name: Windows dependencies
+        if: runner.os == 'Windows'
+        run: |
+          choco install make -y --no-progress
+          python -m pip install meson ninja
+
+      - name: Windows toolchain
+        if: runner.os == 'Windows'
+        uses: ilammy/msvc-dev-cmd@v1
+
       - name: Build native library, CLI, and static media helper
         run: |
           make media-helper
@@ -58,16 +70,29 @@ jobs:
           rm -rf "dist/cli-$key" "dist/sdk-$key"
           mkdir -p "dist/cli-$key/bin" "dist/cli-$key/lib" "dist/sdk-$key/bin" "dist/sdk-$key/include" "dist/sdk-$key/bindings/cpp" "dist/sdk-$key/lib"
 
-          cp bin/rill "dist/cli-$key/bin/rill"
-          cp build/rill-media "dist/cli-$key/bin/rill-media"
+          if [[ "$key" == win32-* ]]; then
+            rill_bin="bin/rill.exe"
+            helper="build/rill-media.exe"
+          else
+            rill_bin="bin/rill"
+            helper="build/rill-media"
+          fi
+
+          cp "$rill_bin" "dist/cli-$key/bin/$(basename "$rill_bin")"
+          cp "$helper" "dist/cli-$key/bin/$(basename "$helper")"
           cp README.md LICENSE NOTICE "dist/cli-$key/"
 
-          cp build/rill-media "dist/sdk-$key/bin/rill-media"
+          cp "$helper" "dist/sdk-$key/bin/$(basename "$helper")"
           cp include/rill.h "dist/sdk-$key/include/rill.h"
           cp bindings/cpp/rill.hpp "dist/sdk-$key/bindings/cpp/rill.hpp"
           cp README.md LICENSE NOTICE "dist/sdk-$key/"
 
-          if [[ "$key" == darwin-* ]]; then
+          if [[ "$key" == win32-* ]]; then
+            cp build/rill.dll "dist/sdk-$key/lib/rill.dll"
+            if [[ -f build/rill.lib ]]; then
+              cp build/rill.lib "dist/sdk-$key/lib/rill.lib"
+            fi
+          elif [[ "$key" == darwin-* ]]; then
             mkdir -p "dist/sdk-$key/lib-tmp"
             cp build/librill.dylib "dist/sdk-$key/lib-tmp/librill.dylib"
 

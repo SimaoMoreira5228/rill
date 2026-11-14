@@ -12,11 +12,21 @@ FFMPEG ?= subproject
 
 UNAME_S := $(shell uname -s)
 
-ifeq ($(UNAME_S),Darwin)
+ifeq ($(OS),Windows_NT)
+EXE := .exe
+HELPER := rill-media.exe
+SHARED_FLAGS := -shared
+LIBRARY := build/rill.dll
+C_LINK_FLAGS := -Lbuild -lrill
+else ifeq ($(UNAME_S),Darwin)
+EXE :=
+HELPER := rill-media
 SHARED_FLAGS := -dynamiclib
 LIBRARY := build/librill.dylib
 C_LINK_FLAGS := -Lbuild -lrill -Wl,-rpath,$(CURDIR)/build
 else
+EXE :=
+HELPER := rill-media
 SHARED_FLAGS := -shared
 LIBRARY := build/librill.so
 C_LINK_FLAGS := -Lbuild -l:librill.so -Wl,-rpath,$(CURDIR)/build
@@ -28,7 +38,7 @@ all: cli lib
 
 cli:
 	mkdir -p bin
-	$(CRYSTAL) build src/cli.cr -o bin/rill
+	$(CRYSTAL) build src/cli.cr -o bin/rill$(EXE)
 
 lib:
 	mkdir -p build
@@ -40,7 +50,7 @@ media-helper:
 	fi
 	$(MESON) compile -C $(NATIVE_BUILD)
 	mkdir -p build
-	cp $(NATIVE_BUILD)/rill-media build/rill-media
+	cp $(NATIVE_BUILD)/$(HELPER) build/$(HELPER)
 
 media-helper-system:
 	@if [ ! -f $(NATIVE_BUILD)-system/build.ninja ]; then \
@@ -48,7 +58,7 @@ media-helper-system:
 	fi
 	$(MESON) compile -C $(NATIVE_BUILD)-system
 	mkdir -p build
-	cp $(NATIVE_BUILD)-system/rill-media build/rill-media-system
+	cp $(NATIVE_BUILD)-system/$(HELPER) build/rill-media-system$(EXE)
 
 media-helper-static: media-helper
 
