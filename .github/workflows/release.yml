@@ -101,8 +101,14 @@ jobs:
 
             crystal_dir=$(dirname "$(command -v crystal)")
             mkdir -p "bindings/node/native/$key" "bindings/bun/native/$key"
-            for dest in "dist/cli-$key/bin" "dist/sdk-$key/lib" "bindings/node/native/$key" "bindings/bun/native/$key"; do
-              cp "$crystal_dir"/*.dll "$dest"/
+            for dll in gc.dll iconv-2.dll libcrypto-4-x64.dll libssl-4-x64.dll libxml2.dll libz.dll pcre2-8.dll; do
+              if [[ ! -f "$crystal_dir/$dll" ]]; then
+                echo "Missing Windows runtime library: $crystal_dir/$dll" >&2
+                exit 1
+              fi
+              for dest in "dist/cli-$key/bin" "dist/sdk-$key/lib" "bindings/node/native/$key" "bindings/bun/native/$key"; do
+                cp "$crystal_dir/$dll" "$dest"/
+              done
             done
           elif [[ "$key" == darwin-* ]]; then
             mkdir -p "dist/sdk-$key/lib-tmp"
@@ -150,6 +156,32 @@ jobs:
         env:
           RILL_PLATFORM_KEY: ${{ matrix.key }}
         run: node scripts/package-native.cjs
+
+      - name: Test Windows binaries
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          link_dir=$(dirname "$(find "/c/Program Files/Microsoft Visual Studio" -path '*/HostX64/x64/link.exe' -print -quit)")
+          export PATH="$link_dir:$PATH"
+
+          ./bin/rill.exe --version
+          ./bin/rill.exe extract "https://example.com/clip.mp4" > /dev/null
+          ./build/rill-media.exe --help > /dev/null
+
+          cat > build/abi_test.c <<'EOF'
+          #include <stdio.h>
+          #include "rill.h"
+          int main(void) {
+            if (rill_abi_version() != 2) return 1;
+            puts("c abi ok");
+            return 0;
+          }
+          EOF
+          cl /nologo /Iinclude /Fo:build/abi_test.obj /Fe:build/abi_test.exe build/abi_test.c /link /LIBPATH:build rill.lib
+          ./build/abi_test.exe
+
+          (cd bindings/node && node smoke.js)
+          (cd bindings/bun && bun run smoke.ts)
 
       - uses: actions/upload-artifact@v4
         with:
