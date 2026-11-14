@@ -1,0 +1,78 @@
+[
+  {
+    "data": {
+      "clip": {
+        "id": "3207364882",
+        "title": "A day in the life of xQc",
+        "duration": 60.03,
+        "createdAt": "2025-03-25T02:26:55Z",
+        "thumbnailURL": "https://static-cdn.jtvnw.net/twitch-video-assets/twitch-vap-video-assets-prod-us-west-2/7473b571-0118-4b71-afbd-177198bb05de/landscape/thumb/thumb-0000000000-1920x1080.jpg",
+        "curator": {
+          "login": "okstfudude",
+          "displayName": "okSTFUdude"
+        },
+        "broadcaster": {
+          "displayName": "xQc"
+        },
+        "playbackAccessToken": {
+          "signature": "2418781d68b16a20e69c6f60d2a0989da6d6c65e",
+          "value": "{\"authorization\":{\"forbidden\":false,\"reason\":\"\"},\"clip_uri\":\"https://d1ndex63qxojbr.cloudfront.net/nauth/7473b571-0118-4b71-afbd-177198bb05de/landscape/avc/360/index.mp4\",\"clip_slug\":\"CulturedAmazingKuduDatSheffy-TiZ_-ixAGYR3y2Uy\",\"device_id\":null,\"expires\":1794734382,\"user_id\":\"\",\"version\":3}"
+        },
+        "assets": [
+          {
+            "aspectRatio": 1.7777777777777777,
+            "thumbnailURL": "https://static-cdn.jtvnw.net/twitch-video-assets/twitch-vap-video-assets-prod-us-west-2/7473b571-0118-4b71-afbd-177198bb05de/landscape/thumb/thumb-0000000000-1920x1080.jpg",
+            "videoQualities": [
+              {
+                "quality": "1080",
+                "frameRate": 0,
+                "sourceURL": "https://d1ndex63qxojbr.cloudfront.net/nauth/7473b571-0118-4b71-afbd-177198bb05de/landscape/avc/1080/index.mp4"
+              },
+              {
+                "quality": "720",
+                "frameRate": 0,
+                "sourceURL": "https://d1ndex63qxojbr.cloudfront.net/nauth/7473b571-0118-4b71-afbd-177198bb05de/landscape/avc/720/index.mp4"
+              },
+              {
+                "quality": "480",
+                "frameRate": 0,
+                "sourceURL": "https://d1ndex63qxojbr.cloudfront.net/nauth/7473b571-0118-4b71-afbd-177198bb05de/landscape/avc/480/index.mp4"
+              },
+              {
+                "quality": "360",
+                "frameRate": 0,
+                "sourceURL": "https://d1ndex63qxojbr.cloudfront.net/nauth/7473b571-0118-4b71-afbd-177198bb05de/landscape/avc/360/index.mp4"
+              }
+            ]
+          },
+          {
+            "aspectRatio": 0.5625,
+            "thumbnailURL": "https://static-cdn.jtvnw.net/twitch-video-assets/twitch-vap-video-assets-prod-us-west-2/7473b571-0118-4b71-afbd-177198bb05de/portrait/thumb/thumb-0000000001-153x272.jpg",
+            "videoQualities": [
+              {
+                "quality": "864",
+                "frameRate": 0,
+                "sourceURL": "https://d1ndex63qxojbr.cloudfront.net/nauth/7473b571-0118-4b71-afbd-177198bb05de/portrait/avc/864/index.mp4"
+              },
+              {
+                "quality": "720",
+                "frameRate": 0,
+                "sourceURL": "https://d1ndex63qxojbr.cloudfront.net/nauth/7473b571-0118-4b71-afbd-177198bb05de/portrait/avc/720/index.mp4"
+              },
+              {
+                "quality": "480",
+                "frameRate": 0,
+                "sourceURL": "https://d1ndex63qxojbr.cloudfront.net/nauth/7473b571-0118-4b71-afbd-177198bb05de/portrait/avc/480/index.mp4"
+              },
+              {
+                "quality": "360",
+                "frameRate": 0,
+                "sourceURL": "https://d1ndex63qxojbr.cloudfront.net/nauth/7473b571-0118-4b71-afbd-177198bb05de/portrait/avc/360/index.mp4"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+]

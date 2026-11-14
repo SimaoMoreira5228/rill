@@ -1,0 +1,37 @@
+[
+  {
+    "data": {
+      "clip": {
+        "id": "396245304",
+        "title": "EA Play 2016 Live from the Novo Theatre",
+        "duration": 32.1,
+        "createdAt": "2016-06-12T21:36:33Z",
+        "thumbnailURL": "https://static-cdn.jtvnw.net/twitch-video-assets/twitch-vap-video-assets-prod-us-west-2/fecef0d5-0773-41f2-a44d-5522061e0a1f/landscape/thumb/thumb-0000000000-1920x1080.jpg",
+        "curator": {
+          "login": "stereotype_",
+          "displayName": "stereotype_"
+        },
+        "broadcaster": {
+          "displayName": "EA"
+        },
+        "playbackAccessToken": {
+          "signature": "5b9a12fcdb9804e79a7e478b740b08b859f03d2e",
+          "value": "{\"authorization\":{\"forbidden\":false,\"reason\":\"\"},\"clip_uri\":\"https://d1ndex63qxojbr.cloudfront.net/nauth/fecef0d5-0773-41f2-a44d-5522061e0a1f/landscape/avc/1080/index.mp4\",\"clip_slug\":\"FaintLightGullWholeWheat\",\"device_id\":null,\"expires\":1794734304,\"user_id\":\"\",\"version\":3}"
+        },
+        "assets": [
+          {
+            "aspectRatio": 1.7777777777777777,
+            "thumbnailURL": "https://static-cdn.jtvnw.net/twitch-video-assets/twitch-vap-video-assets-prod-us-west-2/fecef0d5-0773-41f2-a44d-5522061e0a1f/landscape/thumb/thumb-0000000000-1920x1080.jpg",
+            "videoQualities": [
+              {
+                "quality": "1080",
+                "frameRate": 0,
+                "sourceURL": "https://d1ndex63qxojbr.cloudfront.net/nauth/fecef0d5-0773-41f2-a44d-5522061e0a1f/landscape/avc/1080/index.mp4"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  }
+]
