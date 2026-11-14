@@ -15,7 +15,7 @@ UNAME_S := $(shell uname -s)
 ifeq ($(OS),Windows_NT)
 EXE := .exe
 HELPER := rill-media.exe
-SHARED_FLAGS := -shared
+SHARED_FLAGS := /DLL /DEF:$(CURDIR)/csrc/rill.def /IMPLIB:$(CURDIR)/build/rill.lib
 LIBRARY := build/rill.dll
 C_LINK_FLAGS := -Lbuild -lrill
 else ifeq ($(UNAME_S),Darwin)
