@@ -86,6 +86,97 @@ describe Rill::Extractors::Generic do
     end
   end
 
+  it "uses declared media types for extensionless links" do
+    server = TestHTTPServer.new
+    server.on("/page") do |_, response|
+      response.content_type = "text/html"
+      response.print(<<-HTML)
+        <html>
+          <head>
+            <meta property="og:video" content="/stream">
+            <meta property="og:video:type" content="video/webm">
+          </head>
+          <body>
+            <video><source src="/live" type="audio/ogg; codecs=opus"></video>
+          </body>
+        </html>
+        HTML
+    end
+    server.start
+
+    begin
+      media = Rill::Extractors::Generic.new.extract(
+        URI.parse("#{server.url}/page"),
+        Rill::HTTPClient.new,
+      )
+
+      media.formats.size.should eq(2)
+
+      video = media.formats.find { |format| format.container == "webm" }.not_nil!
+      video.url.to_s.should eq("#{server.url}/stream")
+      video.kind.should eq(Rill::FormatKind::Combined)
+
+      audio = media.formats.find { |format| format.container == "ogg" }.not_nil!
+      audio.url.to_s.should eq("#{server.url}/live")
+      audio.kind.should eq(Rill::FormatKind::Audio)
+    ensure
+      server.close
+    end
+  end
+
+  it "reads schema.org structured data" do
+    server = TestHTTPServer.new
+    server.on("/page") do |_, response|
+      response.content_type = "text/html"
+      response.print(<<-HTML)
+        <html>
+          <head>
+            <script type="application/ld+json">
+              {
+                "@context": "https://schema.org",
+                "@type": "VideoObject",
+                "name": "Structured Video",
+                "description": "Structured description",
+                "duration": "PT3M33S",
+                "thumbnailUrl": "/poster.jpg",
+                "uploadDate": "2024-01-02T10:00:00Z",
+                "author": {"@type": "Person", "name": "Structured Author"},
+                "width": {"@type": "QuantitativeValue", "value": 1280},
+                "height": 720,
+                "contentUrl": "/media/stream",
+                "encodingFormat": "video/mp4"
+              }
+            </script>
+          </head>
+        </html>
+        HTML
+    end
+    server.start
+
+    begin
+      media = Rill::Extractors::Generic.new.extract(
+        URI.parse("#{server.url}/page"),
+        Rill::HTTPClient.new,
+      )
+
+      media.title.should eq("Structured Video")
+      media.description.should eq("Structured description")
+      media.uploader.should eq("Structured Author")
+      media.upload_date.should eq("2024-01-02")
+      media.duration_seconds.not_nil!.should eq(213.0)
+      media.formats.size.should eq(1)
+
+      format = media.formats.first
+      format.url.to_s.should eq("#{server.url}/media/stream")
+      format.container.should eq("mp4")
+      format.width.should eq(1280)
+      format.height.should eq(720)
+      format.kind.should eq(Rill::FormatKind::Combined)
+    ensure
+      server.close
+    end
+  end
+
   it "reports pages without media links" do
     server = TestHTTPServer.new
     server.on("/page") do |_, response|

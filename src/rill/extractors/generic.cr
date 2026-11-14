@@ -1,3 +1,4 @@
+require "json"
 require "set"
 require "uri"
 require "xml"
@@ -6,8 +7,10 @@ require "../errors"
 require "../extractor"
 require "../format"
 require "../http_url"
+require "../json_value"
 require "../media"
 require "../mime_type"
+require "../timestamp"
 require "./direct_media"
 
 module Rill::Extractors
@@ -39,9 +42,10 @@ module Rill::Extractors
         title: metadata.title || fallback_title(url),
         description: metadata.description,
         webpage_url: url,
-        uploader: metadata.site_name,
+        uploader: metadata.uploader || metadata.site_name,
         duration_seconds: metadata.duration_seconds,
         thumbnail_url: metadata.thumbnail_url,
+        upload_date: metadata.upload_date,
         extractor: name,
         formats: formats,
       )
@@ -87,6 +91,10 @@ module Rill::Extractors
           metadata.add_audio(node)
         when "source"
           metadata.add_source(node)
+        when "script"
+          if node["type"]?.try(&.downcase) == "application/ld+json"
+            metadata.add_structured_data(node.content)
+          end
         end
       end
 
@@ -120,9 +128,32 @@ module Rill::Extractors
     end
 
     private class PageMetadata
+      private struct MediaLink
+        getter uri : URI
+        getter kind : FormatKind
+        getter note : String
+        getter extension : String
+        getter declared_type : String?
+
+        def initialize(
+          @uri : URI,
+          @kind : FormatKind,
+          @note : String,
+          @extension : String,
+          @declared_type : String?,
+        )
+        end
+      end
+
+      STRUCTURED_TYPES = %w(
+        VideoObject AudioObject MediaObject Movie Clip TVEpisode Episode PodcastEpisode
+      )
+
       getter title : String?
       getter description : String?
       getter site_name : String?
+      getter uploader : String?
+      getter upload_date : String?
       getter thumbnail_url : URI?
       getter duration_seconds : Float64?
       getter formats = [] of Format
@@ -130,8 +161,11 @@ module Rill::Extractors
       @width : Int32?
       @height : Int32?
       @thumbnail_candidate : String?
-      @media = [] of NamedTuple(uri: URI, kind: FormatKind, note: String, extension: String)
+      @video_type : String?
+      @audio_type : String?
+      @media = [] of MediaLink
       @seen = Set(String).new
+      @structured_data = [] of String
 
       def initialize(@base_url : URI)
       end
@@ -156,6 +190,10 @@ module Rill::Extractors
           @height ||= positive_int(content)
         when "og:video:duration"
           @duration_seconds ||= positive_float(content)
+        when "og:video:type"
+          @video_type ||= content
+        when "og:audio:type"
+          @audio_type ||= content
         when "og:video", "og:video:url", "og:video:secure_url"
           add_media(content, FormatKind::Combined, "og:video")
         when "og:audio", "og:audio:url", "og:audio:secure_url"
@@ -191,10 +229,15 @@ module Rill::Extractors
                  FormatKind::Combined
                end
 
-        add_media(source, kind, "source")
+        add_media(source, kind, "source", type)
+      end
+
+      def add_structured_data(text : String) : Nil
+        @structured_data << text
       end
 
       def finish(fallback_title : String?) : Nil
+        @structured_data.each { |text| apply_structured_data(text) }
         @title ||= fallback_title
 
         if url = @thumbnail_candidate
@@ -202,18 +245,165 @@ module Rill::Extractors
         end
 
         @media.each do |entry|
-          audio = DirectMedia::AUDIO_EXTENSIONS.includes?(entry[:extension])
+          resolved = resolve_format(entry)
+          next unless resolved
+
+          extension, kind = resolved
+          audio = kind == FormatKind::Audio
           @formats << Format.new(
             format_id: "media-#{@formats.size + 1}",
-            url: entry[:uri],
-            kind: audio ? FormatKind::Audio : entry[:kind],
-            container: entry[:extension],
+            url: entry.uri,
+            kind: kind,
+            container: extension,
             width: audio ? nil : @width,
             height: audio ? nil : @height,
             duration_seconds: @duration_seconds,
-            note: entry[:note],
+            note: entry.note,
           )
         end
+      end
+
+      private def resolve_format(entry : MediaLink) : Tuple(String, FormatKind)?
+        extension = entry.extension
+        if DirectMedia::VIDEO_EXTENSIONS.includes?(extension)
+          return {extension, entry.kind}
+        end
+        if DirectMedia::AUDIO_EXTENSIONS.includes?(extension)
+          return {extension, FormatKind::Audio}
+        end
+
+        declared = entry.declared_type
+        declared ||= entry.kind == FormatKind::Audio ? @audio_type : @video_type
+        mime = MimeType.parse(declared || "")
+        return nil unless mime.video? || mime.audio?
+
+        container = mime.container
+        return nil unless container
+
+        kind = mime.audio? ? FormatKind::Audio : entry.kind
+        {container, kind}
+      end
+
+      private def apply_structured_data(text : String) : Nil
+        value = JSON.parse(text)
+        structured_objects(value).each { |object| apply_structured_object(object) }
+      rescue JSON::ParseException
+      end
+
+      private def structured_objects(value : JSON::Any) : Array(Hash(String, JSON::Any))
+        objects = [] of Hash(String, JSON::Any)
+        pending = [value]
+
+        until pending.empty?
+          current = pending.pop
+          if array = current.as_a?
+            pending.concat(array)
+          elsif object = current.as_h?
+            objects << object
+            if graph = object["@graph"]?
+              pending << graph
+            end
+          end
+        end
+
+        objects
+      end
+
+      private def apply_structured_object(object : Hash(String, JSON::Any)) : Nil
+        return unless structured_type?(object["@type"]?) || object["contentUrl"]?
+
+        @title ||= JsonValue.string(object["name"]?)
+        @description ||= JsonValue.string(object["description"]?)
+        @uploader ||= structured_author(object["author"]?)
+        @upload_date ||= date_prefix(JsonValue.string(object["uploadDate"]?))
+        @duration_seconds ||= structured_duration(object["duration"]?)
+        @width ||= structured_dimension(object["width"]?)
+        @height ||= structured_dimension(object["height"]?)
+        @thumbnail_candidate ||= structured_thumbnail(
+          object["thumbnailUrl"]? || object["image"]?,
+        )
+
+        content_url = JsonValue.string(object["contentUrl"]?)
+        return unless content_url
+
+        declared_type = JsonValue.string(object["encodingFormat"]?)
+        declared_type = nil unless declared_type.try(&.includes?('/'))
+        kind = MimeType.parse(declared_type || "").audio? ? FormatKind::Audio : FormatKind::Combined
+        add_media(content_url, kind, "json-ld", declared_type)
+      end
+
+      private def structured_type?(value : JSON::Any?) : Bool
+        if text = value.try(&.as_s?)
+          return STRUCTURED_TYPES.includes?(text)
+        end
+
+        array = value.try(&.as_a?)
+        return false unless array
+
+        array.any? do |item|
+          text = item.as_s?
+          text ? STRUCTURED_TYPES.includes?(text) : false
+        end
+      end
+
+      private def structured_author(value : JSON::Any?) : String?
+        return nil unless value
+
+        if array = value.as_a?
+          array.each do |item|
+            name = structured_author(item)
+            return name if name
+          end
+          return nil
+        end
+
+        if object = value.as_h?
+          JsonValue.string(object["name"]?)
+        else
+          JsonValue.string(value)
+        end
+      end
+
+      private def structured_duration(value : JSON::Any?) : Float64?
+        return nil unless value
+
+        if number = JsonValue.number(value)
+          number if number >= 0
+        else
+          Timestamp.iso8601_seconds(JsonValue.string(value))
+        end
+      end
+
+      private def structured_dimension(value : JSON::Any?) : Int32?
+        if object = value.try(&.as_h?)
+          JsonValue.dimension(object["value"]?)
+        else
+          JsonValue.dimension(value)
+        end
+      end
+
+      private def structured_thumbnail(value : JSON::Any?) : String?
+        return nil unless value
+
+        if array = value.as_a?
+          array.each do |item|
+            url = structured_thumbnail(item)
+            return url if url
+          end
+          return nil
+        end
+
+        if object = value.as_h?
+          JsonValue.string(object["url"]?)
+        else
+          JsonValue.string(value)
+        end
+      end
+
+      private def date_prefix(value : String?) : String?
+        return nil unless value
+
+        value.size >= 10 ? value[0, 10] : value
       end
 
       private def positive_int(value : String) : Int32?
@@ -226,17 +416,25 @@ module Rill::Extractors
         parsed if parsed && parsed.finite? && parsed > 0
       end
 
-      private def add_media(value : String, kind : FormatKind, note : String) : Nil
+      private def add_media(
+        value : String,
+        kind : FormatKind,
+        note : String,
+        declared_type : String? = nil,
+      ) : Nil
         uri = HttpUrl.resolve(@base_url, value)
         return unless uri
         return if @seen.includes?(uri.to_s)
 
         extension = File.extname(uri.path).lchop('.').downcase
-        return unless DirectMedia::VIDEO_EXTENSIONS.includes?(extension) ||
-                      DirectMedia::AUDIO_EXTENSIONS.includes?(extension)
-
         @seen << uri.to_s
-        @media << {uri: uri, kind: kind, note: note, extension: extension}
+        @media << MediaLink.new(
+          uri: uri,
+          kind: kind,
+          note: note,
+          extension: extension,
+          declared_type: declared_type,
+        )
       end
     end
   end
