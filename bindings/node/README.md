@@ -6,7 +6,7 @@ The package contains a small Node-API addon. It calls the same `librill` library
 
 ## Install
 
-Node 18 or newer is required. The install script builds `librill` from the bundled Crystal source when a library is not already available:
+Node 18 or newer is required. Released tarballs contain prebuilt native directories, so installation does not need Crystal. If the matching platform directory is missing, the install script builds `librill` from the bundled Crystal source:
 
 ```sh
 npm install @rill/node
@@ -22,7 +22,7 @@ RILL_LIBRARY=/path/to/librill.so npm install @rill/node
 
 Building from source needs Crystal 1.22 or newer. On a machine without Crystal, set `RILL_LIB_DIR` or `RILL_LIBRARY`.
 
-The tarball also contains a statically linked `rill-media` helper built with the pinned FFmpeg subproject. `index.js` points `RILL_MEDIA_HELPER` at it, so separate video and audio streams can be merged without a system FFmpeg.
+Released tarballs contain `native/<platform>/` directories with the addon, `librill`, and a statically linked `rill-media` helper. `index.js` loads the matching directory and points `RILL_MEDIA_HELPER` at the helper, so separate video and audio streams can be merged without a system FFmpeg.
 
 ## Extract
 

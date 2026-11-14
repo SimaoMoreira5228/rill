@@ -69,7 +69,7 @@ Every binding calls the same native library. It must be built or installed befor
 
 The Rust crate builds `librill` from the bundled Crystal source when no library is available. Set `RILL_LIBRARY` or `RILL_LIB_DIR` to reuse an existing build.
 
-The Node and Bun packages also build `librill` from bundled source during install or first import. Their tarballs include a statically linked `rill-media` helper built from the pinned FFmpeg subproject, so merging separate video and audio works without a system FFmpeg.
+The Node and Bun packages are released with prebuilt native directories for each platform, plus a statically linked `rill-media` helper built from the pinned FFmpeg subproject. The source-build path remains as a fallback for unsupported targets.
 
 ## Tests
 

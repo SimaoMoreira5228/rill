@@ -2,12 +2,14 @@
 
 const fs = require("node:fs");
 const path = require("node:path");
+const { helperName, nativeDir } = require("./scripts/platform.js");
 
-const helperName = process.platform === "win32" ? "rill-media.exe" : "rill-media";
+const platformDirectory = nativeDir(__dirname);
 const helperCandidates = [
-  path.join(__dirname, "native", helperName),
-  path.join(__dirname, "..", "..", "build", helperName),
-  path.join(process.cwd(), "build", helperName),
+  path.join(platformDirectory, helperName()),
+  path.join(__dirname, "native", helperName()),
+  path.join(__dirname, "..", "..", "build", helperName()),
+  path.join(process.cwd(), "build", helperName()),
 ];
 const mediaHelper = helperCandidates.find((candidate) => fs.existsSync(candidate));
 
@@ -15,7 +17,10 @@ if (mediaHelper && !process.env.RILL_MEDIA_HELPER) {
   process.env.RILL_MEDIA_HELPER = mediaHelper;
 }
 
-const addon = require("./build/Release/rill_node.node");
+const prebuiltAddon = path.join(platformDirectory, "rill_node.node");
+const addon = require(
+  fs.existsSync(prebuiltAddon) ? prebuiltAddon : "./build/Release/rill_node.node",
+);
 
 const DownloadState = Object.freeze({
   Queued: 0,

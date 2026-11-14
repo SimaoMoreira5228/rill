@@ -40,7 +40,8 @@
   ],
   "scripts": {
     "prepack": "node scripts/prepack.js",
-    "install": "node scripts/build-native.js && node-gyp rebuild",
+    "install": "node scripts/install.js",
+    "package-native": "node scripts/package-native.js",
     "test": "node smoke.js"
   },
   "publishConfig": {

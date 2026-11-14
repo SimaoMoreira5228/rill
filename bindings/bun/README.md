@@ -6,7 +6,7 @@ The package uses `bun:ffi` and the same `librill` library as the Crystal CLI. Lo
 
 ## Install
 
-Bun 1.1.30 or newer is required. The package builds `librill` from the bundled Crystal source on first import when a library is not already available:
+Bun 1.1.30 or newer is required. Released tarballs contain prebuilt native directories. If the matching directory is missing, the package builds `librill` from the bundled Crystal source on first import:
 
 ```sh
 bun add @rill/bun
@@ -22,7 +22,7 @@ RILL_LIB_DIR=/path/to/rill/build bun add @rill/bun
 
 Building from source needs Crystal 1.22 or newer.
 
-The tarball also contains a statically linked `rill-media` helper built with the pinned FFmpeg subproject. `index.ts` points `RILL_MEDIA_HELPER` at it, so separate video and audio streams can be merged without a system FFmpeg.
+Released tarballs contain `native/<platform>/` directories with `librill` and a statically linked `rill-media` helper. `index.ts` loads the matching directory and points `RILL_MEDIA_HELPER` at the helper, so separate video and audio streams can be merged without a system FFmpeg.
 
 ## Extract
 

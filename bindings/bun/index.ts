@@ -11,6 +11,21 @@ const libraryName =
       ? "rill.dll"
       : "librill.so";
 
+function platformKey(): string {
+  if (process.env.RILL_PLATFORM_KEY) {
+    return process.env.RILL_PLATFORM_KEY;
+  }
+
+  if (process.platform === "linux") {
+    const report = process.report?.getReport?.();
+    return `linux-${process.arch}-${report?.header?.glibcVersionRuntime ? "gnu" : "musl"}`;
+  }
+
+  return `${process.platform}-${process.arch}`;
+}
+
+const platformDirectory = join(import.meta.dir, "native", platformKey());
+
 const workerPath = fileURLToPath(new URL("./extract-worker.ts", import.meta.url));
 
 function configureMediaHelper(): void {
@@ -20,6 +35,7 @@ function configureMediaHelper(): void {
 
   const helperName = process.platform === "win32" ? "rill-media.exe" : "rill-media";
   const candidates = [
+    join(platformDirectory, helperName),
     join(import.meta.dir, "native", helperName),
     join(import.meta.dir, "..", "..", "build", helperName),
     join(process.cwd(), "build", helperName),
@@ -37,6 +53,7 @@ function ensureLibrary(): string {
   }
 
   const candidates = [
+    join(platformDirectory, libraryName),
     join(import.meta.dir, "native", libraryName),
     join(import.meta.dir, "..", "..", "build", libraryName),
     join(process.cwd(), "build", libraryName),
