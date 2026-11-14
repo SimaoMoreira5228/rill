@@ -97,6 +97,10 @@ source_list = run_command(
   check: true,
 ).stdout().strip().split('\n')
 rill_sources = files(source_list)
+solver_assets = files(
+  'src/rill/extractors/youtube/yt.solver.lib.min.js',
+  'src/rill/extractors/youtube/yt.solver.core.min.js',
+)
 
 host_system = host_machine.system()
 
@@ -126,7 +130,7 @@ library_link_flags = ' '.join([shared_flags, rill_js.full_path()] + js_system_li
 
 librill = custom_target(
   'librill',
-  input: rill_sources + files('shard.yml'),
+  input: rill_sources + solver_assets + files('shard.yml'),
   output: library_name,
   command: [
     crystal,
@@ -145,7 +149,7 @@ librill = custom_target(
 
 rill = custom_target(
   'rill',
-  input: rill_sources + files('shard.yml'),
+  input: rill_sources + solver_assets + files('shard.yml'),
   output: cli_name,
   command: [
     crystal,

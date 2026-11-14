@@ -1,5 +1,5 @@
 import { CString, dlopen, FFIType, ptr } from "bun:ffi";
-import { existsSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Worker } from "node:worker_threads";
@@ -80,26 +80,39 @@ function ensureLibrary(): string {
   const library = join(import.meta.dir, "native", libraryName);
   mkdirSync(dirname(library), { recursive: true });
 
+  const meson = process.env.MESON ?? "meson";
+  const buildDir = join(sourceRoot, "build");
+
+  if (!existsSync(join(buildDir, "build.ninja"))) {
+    const setup = Bun.spawnSync({
+      cmd: [meson, "setup", "build", "--buildtype=release", "-Dmedia=false"],
+      cwd: sourceRoot,
+      stdout: "inherit",
+      stderr: "inherit",
+    });
+
+    if (setup.exitCode !== 0) {
+      throw new Error("meson setup failed while preparing the Rill library");
+    }
+  }
+
   const result = Bun.spawnSync({
-    cmd: [
-      process.env.CRYSTAL ?? "crystal",
-      "build",
-      "--single-module",
-      "--link-flags",
-      process.platform === "win32" ? "/DLL" : "-shared",
-      "-o",
-      library,
-      source,
-    ],
+    cmd: [meson, "compile", "-C", "build", "librill"],
     cwd: sourceRoot,
     stdout: "inherit",
     stderr: "inherit",
   });
 
   if (result.exitCode !== 0) {
-    throw new Error("crystal build failed while preparing the Rill library");
+    throw new Error("meson compile failed while preparing the Rill library");
   }
 
+  const built = join(buildDir, libraryName);
+  if (!existsSync(built)) {
+    throw new Error(`Meson did not produce ${built}`);
+  }
+
+  copyFileSync(built, library);
   return library;
 }
 

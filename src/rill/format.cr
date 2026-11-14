@@ -58,6 +58,30 @@ module Rill
     )
     end
 
+    def with_url(url : URI) : Format
+      Format.new(
+        format_id: format_id,
+        url: url,
+        kind: kind,
+        protocol: protocol,
+        container: container,
+        bitrate: bitrate,
+        video_codec: video_codec,
+        audio_codec: audio_codec,
+        width: width,
+        height: height,
+        fps: fps,
+        video_bitrate: video_bitrate,
+        audio_bitrate: audio_bitrate,
+        filesize: filesize,
+        range_chunk_size: range_chunk_size,
+        duration_seconds: duration_seconds,
+        language: language,
+        note: note,
+        live: live?,
+      )
+    end
+
     def to_json(json : JSON::Builder) : Nil
       json.object do
         json.field "format_id", format_id

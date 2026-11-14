@@ -30,17 +30,37 @@ if (!fs.existsSync(source)) {
 
 fs.mkdirSync(nativeDir, { recursive: true });
 
-const linkFlag = process.platform === "win32" ? "/DLL" : "-shared";
-const result = spawnSync(
-  process.env.CRYSTAL || "crystal",
-  ["build", "--single-module", "--link-flags", linkFlag, "-o", library, source],
-  { cwd: root, stdio: "inherit" },
-);
+const meson = process.env.MESON || "meson";
+const buildDir = path.join(root, "build");
 
-if (result.error) {
-  console.error("Unable to run crystal. Install Crystal 1.22 or set RILL_LIB_DIR.");
-  console.error(result.error.message);
+if (!fs.existsSync(path.join(buildDir, "build.ninja"))) {
+  const setup = spawnSync(
+    meson,
+    ["setup", "build", "--buildtype=release", "-Dmedia=false"],
+    { cwd: root, stdio: "inherit" },
+  );
+
+  if (setup.error || setup.status !== 0) {
+    console.error("Unable to run meson. Install Meson and Ninja or set RILL_LIB_DIR.");
+    process.exit(1);
+  }
+}
+
+const result = spawnSync(meson, ["compile", "-C", "build", "librill"], {
+  cwd: root,
+  stdio: "inherit",
+});
+
+if (result.error || result.status !== 0) {
+  console.error("meson failed while preparing the Rill library");
   process.exit(1);
 }
 
-process.exit(result.status ?? 1);
+const built = path.join(buildDir, libraryName);
+if (!fs.existsSync(built)) {
+  console.error(`Meson did not produce ${built}`);
+  process.exit(1);
+}
+
+fs.copyFileSync(built, library);
+process.exit(0);

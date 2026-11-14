@@ -34,7 +34,7 @@ HLS, DASH, M3U playlists, and direct media URLs are handled without a site extra
 
 ## Build
 
-You need Crystal 1.22 or newer plus the libraries Crystal normally links against (`libxml2`, OpenSSL, pcre2, libgc, libyaml, and zlib).
+You need Crystal 1.22 or newer, Meson, Ninja, and the libraries Crystal normally links against (`libxml2`, OpenSSL, pcre2, libgc, libyaml, and zlib).
 
 ```sh
 meson setup build --buildtype=release
@@ -81,7 +81,7 @@ Every binding calls the same native library. It must be built or installed befor
 | Node.js | `bindings/node` | `rill-node` |
 | Bun | `bindings/bun` | `rill-bun` |
 
-The Rust crate builds `librill` from the bundled Crystal source when no library is available. Set `RILL_LIBRARY` or `RILL_LIB_DIR` to reuse an existing build.
+The Rust crate builds `librill` from the bundled Crystal source when no library is available. That path needs Meson and Ninja. Set `RILL_LIBRARY` or `RILL_LIB_DIR` to reuse an existing build.
 
 The Node and Bun packages are released with prebuilt native directories for each platform, plus a statically linked `rill-media` helper built from the pinned FFmpeg subproject. The source-build path remains as a fallback for unsupported targets.
 

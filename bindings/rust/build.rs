@@ -47,38 +47,42 @@ fn main() {
     build_from_source(&manifest, &target_os, library_name);
 }
 
-fn build_from_source(manifest: &Path, target_os: &str, library_name: &str) {
+fn build_from_source(manifest: &Path, _target_os: &str, library_name: &str) {
     let source = manifest.join("src/c_api.cr");
     assert!(
         source.is_file(),
         "librill was not found and src/c_api.cr is missing; set RILL_LIB_DIR or RILL_LIBRARY"
     );
 
-    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR is not set"));
-    let library = out_dir.join(library_name);
-    let crystal = env::var("CRYSTAL").unwrap_or_else(|_| "crystal".to_string());
-    let link_flag = if target_os == "windows" {
-        "/DLL"
-    } else {
-        "-shared"
-    };
+    let meson = env::var("MESON").unwrap_or_else(|_| "meson".to_string());
+    let build_dir = manifest.join("build");
 
-    let status = Command::new(crystal)
+    if !build_dir.join("build.ninja").is_file() {
+        let status = Command::new(&meson)
+            .current_dir(manifest)
+            .args(["setup", "build", "--buildtype=release", "-Dmedia=false"])
+            .status()
+            .expect("failed to run meson; install Meson and Ninja or set RILL_LIB_DIR");
+
+        assert!(status.success(), "meson setup failed");
+    }
+
+    let status = Command::new(&meson)
         .current_dir(manifest)
-        .args(["build", "--single-module", "--link-flags", link_flag, "-o"])
-        .arg(&library)
-        .arg(&source)
+        .args(["compile", "-C", "build", "librill"])
         .status()
-        .expect("failed to run crystal; install Crystal 1.22 or set RILL_LIB_DIR");
+        .expect("failed to run meson; install Meson and Ninja or set RILL_LIB_DIR");
 
-    assert!(status.success(), "crystal build failed");
+    assert!(status.success(), "meson compile failed");
+
+    let library = build_dir.join(library_name);
     assert!(
         library.is_file(),
-        "crystal did not produce {}",
+        "meson did not produce {}",
         library.display()
     );
 
-    link(&out_dir);
+    link(&build_dir);
 }
 
 fn link(directory: &Path) {

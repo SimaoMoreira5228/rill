@@ -55,8 +55,13 @@ module Rill::Extractors
     struct Bootstrap
       getter visitor_data : String?
       getter api_key : String?
+      getter js_url : String?
 
-      def initialize(@visitor_data : String? = nil, @api_key : String? = nil)
+      def initialize(
+        @visitor_data : String? = nil,
+        @api_key : String? = nil,
+        @js_url : String? = nil,
+      )
       end
     end
 
@@ -97,7 +102,6 @@ module Rill::Extractors
       "(Linux; U; Android 12L; en_US; Quest 3 Build/SQ3A.220605.009.A1) gzip",
       {
         "clientName"        => "ANDROID_VR",
-        "clientVersion"     => "1.65.10",
         "deviceMake"        => "Oculus",
         "deviceModel"       => "Quest 3",
         "platform"          => "MOBILE",
@@ -108,7 +112,23 @@ module Rill::Extractors
       },
     )
 
-    CLIENTS = {VISIONOS, ANDROID_VR, TV_SAMSUNG}
+    ANDROID = PlayerClient.new(
+      "android",
+      "3",
+      "21.03.36",
+      "com.google.android.youtube/21.03.36 (Linux; U; Android 15; US) gzip",
+      {
+        "clientName"        => "ANDROID",
+        "clientScreen"      => "WATCH",
+        "platform"          => "MOBILE",
+        "osName"            => "Android",
+        "osVersion"         => "15",
+        "androidSdkVersion" => "35",
+        "gl"                => "US",
+      },
+    )
+
+    CLIENTS = {VISIONOS, ANDROID_VR, ANDROID, TV_SAMSUNG}
 
     SEARCH_CLIENT = PlayerClient.new(
       "web",
@@ -130,6 +150,9 @@ module Rill::Extractors
       )
       end
     end
+
+    @solver : Solver? = nil
+    @solver_loaded = false
 
     def initialize(@api_base : String = DEFAULT_API_BASE)
     end
@@ -173,11 +196,14 @@ module Rill::Extractors
               return build_live_media(details, payload, hls_url, video_id, url, client)
             end
 
+            formats = formats_from(payload["streamingData"]?, client, bootstrap)
+            return build_media(details, payload, formats, video_id, url) unless formats.empty?
+
             errors << "#{player_client.name}: live stream has no HLS manifest"
             next
           end
 
-          formats = formats_from(payload["streamingData"]?)
+          formats = formats_from(payload["streamingData"]?, client, bootstrap)
           if formats.empty?
             errors << "#{player_client.name}: no direct formats; JavaScript challenge support is required"
             next
@@ -190,6 +216,10 @@ module Rill::Extractors
       end
 
       raise MediaUnavailableError.new(url.to_s, errors.uniq.join("; "))
+    ensure
+      @solver.try(&.close)
+      @solver = nil
+      @solver_loaded = false
     end
 
     def search(query : String, client : HTTPClient, limit : Int32 = 5) : Array(SearchResult)
@@ -350,8 +380,10 @@ module Rill::Extractors
       visitor = body.match(/"VISITOR_DATA":"([^"]+)"/) ||
                 body.match(/"visitorData":"([^"]+)"/)
       api_key = body.match(/"INNERTUBE_API_KEY":"([^"]+)"/)
+      js_url = body.match(/"jsUrl":"([^"]+)"/) ||
+               body.match(/"PLAYER_JS_URL":"([^"]+)"/)
 
-      Bootstrap.new(visitor.try(&.[1]), api_key.try(&.[1]))
+      Bootstrap.new(visitor.try(&.[1]), api_key.try(&.[1]), js_url.try(&.[1]))
     rescue Rill::Error
       Bootstrap.new
     end
@@ -426,36 +458,162 @@ module Rill::Extractors
       reason || "video is not playable (#{state || "unknown"})"
     end
 
-    private def formats_from(streaming_value : JSON::Any?) : Array(Format)
+    private def formats_from(
+      streaming_value : JSON::Any?,
+      client : HTTPClient,
+      bootstrap : Bootstrap,
+    ) : Array(Format)
       streaming = streaming_value.try(&.as_h?)
       return [] of Format unless streaming
 
       formats = [] of Format
       seen = Set(String).new
+      ciphers = [] of Tuple(JSON::Any, String)
+      n_challenges = [] of String
 
       {"formats", "adaptiveFormats"}.each do |key|
         items = streaming[key]?.try(&.as_a?) || [] of JSON::Any
 
         items.each do |item|
-          format = format_from(item)
-          next unless format
-          next if seen.includes?(format.format_id)
+          value = item.as_h?
+          next unless value
 
-          seen << format.format_id
-          formats << format
+          if url = HttpUrl.absolute(JsonValue.string(value["url"]?))
+            if challenge = n_challenge(url)
+              n_challenges << challenge
+            end
+            add_format(formats, seen, format_from(item, url))
+          elsif cipher = JsonValue.string(value["signatureCipher"]?)
+            ciphers << {item, cipher}
+          end
+        end
+      end
+
+      unless ciphers.empty? && n_challenges.empty?
+        if solver = solver_for(client, bootstrap)
+          requests = [] of Solver::Request
+
+          unless ciphers.empty?
+            challenges = ciphers.compact_map { |(_, cipher)| cipher_challenge(cipher) }.uniq
+            requests << Solver::Request.new("sig", challenges) unless challenges.empty?
+          end
+
+          unless n_challenges.empty?
+            requests << Solver::Request.new("n", n_challenges.uniq)
+          end
+
+          responses = solver.solve(requests)
+          signatures = solution_for(responses, requests, "sig")
+          nsigs = solution_for(responses, requests, "n")
+
+          ciphers.each do |(item, cipher)|
+            if url = resolve_cipher(cipher, signatures)
+              add_format(formats, seen, format_from(item, url))
+            end
+          end
+
+          unless nsigs.empty?
+            formats.map! do |format|
+              if challenge = n_challenge(format.url)
+                if decoded = nsigs[challenge]?
+                  format.with_url(replace_n(format.url, decoded))
+                else
+                  format
+                end
+              else
+                format
+              end
+            end
+          end
         end
       end
 
       formats
     end
 
-    private def format_from(item : JSON::Any) : Format?
+    private def add_format(
+      formats : Array(Format),
+      seen : Set(String),
+      format : Format?,
+    ) : Nil
+      return unless format
+      return if seen.includes?(format.format_id)
+
+      seen << format.format_id
+      formats << format
+    end
+
+    private def solver_for(client : HTTPClient, bootstrap : Bootstrap) : Solver?
+      return @solver if @solver_loaded
+      @solver_loaded = true
+
+      path = bootstrap.js_url
+      return nil unless path
+
+      path = path.gsub("\\/", "/").gsub("\\u0026", "&")
+      url = if path.starts_with?("http://") || path.starts_with?("https://")
+              URI.parse(path)
+            else
+              URI.parse("#{@api_base}#{path.starts_with?("/") ? "" : "/"}#{path}")
+            end
+
+      @solver = Solver.new(client.get(url).body)
+    rescue Rill::Error | URI::Error | JSON::ParseException
+      @solver = nil
+    end
+
+    private def n_challenge(url : URI) : String?
+      HTTP::Params.parse(url.query || "")["n"]?
+    end
+
+    private def cipher_challenge(cipher : String) : String?
+      HTTP::Params.parse(cipher)["s"]?
+    end
+
+    private def resolve_cipher(
+      cipher : String,
+      signatures : Hash(String, String),
+    ) : URI?
+      params = HTTP::Params.parse(cipher)
+      url = params["url"]?
+      signature = params["s"]?
+      parameter = params["sp"]?
+      return nil unless url && signature && parameter
+
+      decoded = signatures[signature]?
+      return nil unless decoded
+
+      separator = url.includes?('?') ? '&' : '?'
+      HttpUrl.absolute("#{url}#{separator}#{parameter}=#{URI.encode_www_form(decoded)}")
+    rescue ArgumentError | URI::Error
+      nil
+    end
+
+    private def replace_n(url : URI, decoded : String) : URI
+      params = HTTP::Params.parse(url.query || "")
+      params["n"] = decoded
+      updated = url.dup
+      updated.query = params.to_s
+      updated
+    end
+
+    private def solution_for(
+      responses : Array(Solver::Response),
+      requests : Array(Solver::Request),
+      type : String,
+    ) : Hash(String, String)
+      responses.each_with_index do |response, index|
+        next unless requests[index]?.try(&.type) == type
+
+        return response.data || {} of String => String
+      end
+
+      {} of String => String
+    end
+
+    private def format_from(item : JSON::Any, url : URI) : Format?
       value = item.as_h?
       return nil unless value
-
-      url = HttpUrl.absolute(JsonValue.string(value["url"]?))
-      return nil unless url
-      return nil if value["signatureCipher"]?
 
       itag = JsonValue.integer(value["itag"]?)
       return nil unless itag
@@ -576,3 +734,5 @@ module Rill::Extractors
     end
   end
 end
+
+require "./youtube/solver"

@@ -127,7 +127,7 @@ describe Rill::Extractors::YouTube do
       client_name = request.headers["X-YouTube-Client-Name"]
       clients << client_name
 
-      if client_name == "101" || client_name == "28"
+      if client_name == "101" || client_name == "28" || client_name == "3"
         response.print(youtube_body("login_required.json"))
       else
         response.print(fallback)
@@ -144,7 +144,7 @@ describe Rill::Extractors::YouTube do
 
       media.title.should eq("Fallback")
       media.formats.size.should eq(1)
-      clients.should eq(["101", "28", "7"])
+      clients.should eq(["101", "28", "3", "7"])
     ensure
       server.close
     end
@@ -229,6 +229,77 @@ describe Rill::Extractors::YouTube do
       expect_raises(Rill::MediaUnavailableError, /live stream has no HLS manifest/) do
         extractor.extract(URI.parse("https://www.youtube.com/watch?v=live1234567"), Rill::HTTPClient.new)
       end
+    ensure
+      server.close
+    end
+  end
+
+  it "sends one clientVersion for the Android VR client" do
+    captured = nil.as(String?)
+    server = TestHTTPServer.new
+    server.on("/watch") { |_, response| response.print(%({"VISITOR_DATA":"visitor123"})) }
+    server.on("/youtubei/v1/player") do |request, response|
+      if request.headers["X-YouTube-Client-Name"] == "28"
+        captured = request.body.try(&.gets_to_end)
+        response.print(youtube_body("player.json"))
+      else
+        response.print(youtube_body("login_required.json"))
+      end
+    end
+    server.start
+
+    begin
+      extractor = Rill::Extractors::YouTube.new(server.url)
+      extractor.extract(
+        URI.parse("https://www.youtube.com/watch?v=dQw4w9WgXcQ"),
+        Rill::HTTPClient.new,
+      )
+
+      captured.not_nil!.scan(/"clientVersion"/).size.should eq(1)
+    ensure
+      server.close
+    end
+  end
+
+  it "uses direct formats for a finished livestream" do
+    player = %({
+      "playabilityStatus": {"status": "OK"},
+      "videoDetails": {
+        "videoId": "dQw4w9WgXcQ",
+        "title": "Finished live",
+        "author": "Example",
+        "lengthSeconds": "10",
+        "isLiveContent": true
+      },
+      "streamingData": {
+        "formats": [
+          {
+            "itag": 18,
+            "url": "https://example.com/video.mp4",
+            "mimeType": "video/mp4",
+            "width": 640,
+            "height": 360,
+            "audioChannels": 2,
+            "bitrate": 500000,
+            "contentLength": "1000"
+          }
+        ]
+      }
+    })
+
+    server = TestHTTPServer.new
+    server.on("/youtubei/v1/player") { |_, response| response.print(player) }
+    server.start
+
+    begin
+      extractor = Rill::Extractors::YouTube.new(server.url)
+      media = extractor.extract(
+        URI.parse("https://www.youtube.com/watch?v=dQw4w9WgXcQ"),
+        Rill::HTTPClient.new,
+      )
+
+      media.is_live?.should be_false
+      media.formats.size.should eq(1)
     ensure
       server.close
     end
