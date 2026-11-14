@@ -68,10 +68,13 @@ jobs:
           cp README.md LICENSE NOTICE "dist/sdk-$key/"
 
           if [[ "$key" == darwin-* ]]; then
-            cp build/librill.dylib "dist/sdk-$key/lib/librill.dylib"
+            mkdir -p "dist/sdk-$key/lib-tmp"
+            cp build/librill.dylib "dist/sdk-$key/lib-tmp/librill.dylib"
 
             dylibbundler -od -b -x "dist/cli-$key/bin/rill" -d "dist/cli-$key/lib" -p "@executable_path/../lib"
-            dylibbundler -od -b -x "dist/sdk-$key/lib/librill.dylib" -d "dist/sdk-$key/lib" -p "@loader_path"
+            dylibbundler -od -b -x "dist/sdk-$key/lib-tmp/librill.dylib" -d "dist/sdk-$key/lib" -p "@loader_path"
+            cp "dist/sdk-$key/lib-tmp/librill.dylib" "dist/sdk-$key/lib/librill.dylib"
+            rm -rf "dist/sdk-$key/lib-tmp"
           else
             cp build/librill.so "dist/sdk-$key/lib/librill.so"
           fi
