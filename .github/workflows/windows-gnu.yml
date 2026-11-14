@@ -1,0 +1,56 @@
+name: windows-gnu
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            make
+            mingw-w64-ucrt-x86_64-crystal
+            mingw-w64-ucrt-x86_64-gc
+            mingw-w64-ucrt-x86_64-openssl
+            mingw-w64-ucrt-x86_64-libxml2
+            mingw-w64-ucrt-x86_64-pcre2
+            mingw-w64-ucrt-x86_64-zlib
+            mingw-w64-ucrt-x86_64-libiconv
+
+      - name: Build library and CLI
+        run: |
+          set -x
+          crystal --version
+          make lib SHARED_FLAGS="-shared $PWD/csrc/rill.def -Wl,--out-implib,$PWD/build/librill.dll.a" SHARED_DEFINES=-Dwithout_main
+          make cli
+          ./bin/rill.exe --version
+          ./bin/rill.exe extract "https://example.com/clip.mp4" > /dev/null
+
+      - name: Test C ABI
+        run: |
+          cat > abi_test.c <<'EOF'
+          #include <stdio.h>
+          #include "rill.h"
+          int main(void) {
+            if (rill_abi_version() != 2) return 1;
+            puts("c abi ok");
+            return 0;
+          }
+          EOF
+          cc -Iinclude -o abi_test.exe abi_test.c -Lbuild -lrill
+          ./abi_test.exe
+
+      - name: Show runtime dependencies
+        run: |
+          ldd build/rill.dll
+          ldd bin/rill.exe
