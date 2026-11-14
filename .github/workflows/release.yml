@@ -109,18 +109,19 @@ jobs:
               done
             done
 
-            vc_runtime_dir=$(dirname "$(find "/c/Program Files/Microsoft Visual Studio" -path '*/x64/Microsoft.VC*.CRT/vcruntime140.dll' -print -quit)")
-            if [[ ! -d "$vc_runtime_dir" ]]; then
+            vc_runtime_file=$(find "/c/Program Files/Microsoft Visual Studio" -path '*/x64/Microsoft.VC*.CRT/vcruntime140.dll' -print -quit)
+            if [[ -z "$vc_runtime_file" ]]; then
               echo "Missing Visual C++ runtime redistributable" >&2
               exit 1
             fi
+            vc_runtime_dir=$(dirname "$vc_runtime_file")
 
             for dll in vcruntime140.dll vcruntime140_1.dll; do
               if [[ ! -f "$vc_runtime_dir/$dll" ]]; then
                 echo "Missing Visual C++ runtime library: $vc_runtime_dir/$dll" >&2
                 exit 1
               fi
-              for dest in "dist/cli-$key/bin" "dist/sdk-$key/lib" "bindings/node/native/$key" "bindings/bun/native/$key"; do
+              for dest in "dist/cli-$key/bin" "dist/sdk-$key/bin" "dist/sdk-$key/lib" "bindings/node/native/$key" "bindings/bun/native/$key"; do
                 cp "$vc_runtime_dir/$dll" "$dest"/
               done
             done
@@ -184,11 +185,20 @@ jobs:
 
           test -f "dist/cli-$RILL_PLATFORM_KEY/bin/vcruntime140.dll"
           test -f "dist/cli-$RILL_PLATFORM_KEY/bin/vcruntime140_1.dll"
+          test -f "dist/sdk-$RILL_PLATFORM_KEY/bin/vcruntime140.dll"
+          test -f "dist/sdk-$RILL_PLATFORM_KEY/lib/vcruntime140.dll"
+          test -f "bindings/node/native/$RILL_PLATFORM_KEY/vcruntime140.dll"
+          test -f "bindings/bun/native/$RILL_PLATFORM_KEY/vcruntime140.dll"
 
-          ./build/rill.exe --version
-          ./build/rill.exe extract "https://example.com/clip.mp4" > /dev/null
+          version=$(awk '/^version:/ {print $2}' shard.yml)
+          rm -rf build/packaged-cli
+          mkdir -p build/packaged-cli
+          tar -xzf "dist/rill-${version}-${RILL_PLATFORM_KEY}.tar.gz" -C build/packaged-cli
 
-          if ./build/rill.exe extract "https://www.youtube.com/watch?v=dQw4w9WgXcQ" > /dev/null 2>&1; then
+          ./build/packaged-cli/bin/rill.exe --version
+          ./build/packaged-cli/bin/rill.exe extract "https://example.com/clip.mp4" > /dev/null
+
+          if ./build/packaged-cli/bin/rill.exe extract "https://www.youtube.com/watch?v=dQw4w9WgXcQ" > /dev/null 2>&1; then
             echo "youtube extraction: ok"
           else
             echo "warning: youtube extraction failed on Windows" >&2
@@ -338,7 +348,7 @@ jobs:
       - name: Rust build dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgc-dev libssl-dev libxml2-dev libyaml-dev libpcre2-dev zlib1g-dev
+          sudo apt-get install -y libgc-dev libssl-dev libxml2-dev libyaml-dev libpcre2-dev zlib1g-dev meson ninja-build
 
       - uses: rust-lang/crates-io-auth-action@v1
         id: crates-auth
