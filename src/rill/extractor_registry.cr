@@ -2,6 +2,7 @@ require "uri"
 
 require "./errors"
 require "./extractor"
+require "./extractors/bandcamp"
 require "./extractors/dash"
 require "./extractors/direct_media"
 require "./extractors/generic"
@@ -25,6 +26,7 @@ module Rill
       registry.register(Extractors::PeerTube)
       registry.register(Extractors::YouTube)
       registry.register(Extractors::Spotify)
+      registry.register(Extractors::Bandcamp)
       registry.register(Extractors::Hls)
       registry.register(Extractors::Dash)
       registry.register(Extractors::M3u)
