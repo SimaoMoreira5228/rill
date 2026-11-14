@@ -31,7 +31,7 @@ jobs:
         run: |
           set -x
           crystal --version
-          make lib SHARED_FLAGS="-shared csrc/rill.def -Wl,--out-implib,build/librill.dll.a" SHARED_DEFINES=-Dwithout_main
+          make lib SHARED_FLAGS="-shared $(cygpath -w "$PWD/csrc/rill.def") -Wl,--out-implib,$(cygpath -w "$PWD/build/librill.dll.a")" SHARED_DEFINES=-Dwithout_main
           make cli
           ./bin/rill.exe --version
           ./bin/rill.exe extract "https://example.com/clip.mp4" > /dev/null
