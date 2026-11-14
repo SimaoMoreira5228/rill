@@ -83,6 +83,8 @@ describe Rill::ExtractorRegistry do
       .should eq(Rill::Extractors::SoundCloud)
     registry.extractor_for("https://on.soundcloud.com/abc123")
       .should eq(Rill::Extractors::SoundCloud)
+    registry.extractor_for("https://www.mixcloud.com/dholbach/cryptkeeper/")
+      .should eq(Rill::Extractors::Mixcloud)
     registry.extractor_for("https://example.com/clip.mp4")
       .should eq(Rill::Extractors::DirectMedia)
     registry.extractor_for("https://example.com/playlist.m3u8")

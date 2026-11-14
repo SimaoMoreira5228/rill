@@ -10,6 +10,7 @@ require "./extractors/hls"
 require "./extractors/internet_archive"
 require "./extractors/m3u"
 require "./extractors/media_ccc_de"
+require "./extractors/mixcloud"
 require "./extractors/peer_tube"
 require "./extractors/rumble"
 require "./extractors/soundcloud"
@@ -31,6 +32,7 @@ module Rill
       registry.register(Extractors::Bandcamp)
       registry.register(Extractors::Rumble)
       registry.register(Extractors::SoundCloud)
+      registry.register(Extractors::Mixcloud)
       registry.register(Extractors::Hls)
       registry.register(Extractors::Dash)
       registry.register(Extractors::M3u)

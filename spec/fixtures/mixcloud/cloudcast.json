@@ -1,0 +1,24 @@
+{
+  "data": {
+    "cloudcastLookup": {
+      "name": "Cryptkeeper",
+      "description": "After quite a long silence from myself, finally another Drum'n'Bass mix with my favourite current dance floor bangers.",
+      "audioLength": 3723,
+      "publishDate": "2011-11-15T12:19:38+00:00",
+      "restrictedReason": null,
+      "picture": {
+        "url": "https://thumbnailer.mixcloud.com/unsafe/1024x1024/extaudio/a/4/1/3/7e83-445a-4339-9f12-677a718db4de.jpg"
+      },
+      "owner": {
+        "displayName": "dholbach",
+        "username": "dholbach",
+        "url": "https://www.mixcloud.com/dholbach/"
+      },
+      "streamInfo": {
+        "url": "ITItPyZtbmEwOGYoKCo3JTwhN3osKCh7IyQqMTYqYSx7KXs2YXp7bnJpNGAuYi13J3p+ZWkrf2oreGNxK2F5cXV5ZHktZGdiZHx/dWVpJXBqKXsvcCctKGoUIxk7C38TFxUADRMTeCgtBn8/ajoE",
+        "hlsUrl": "ITItPyZtbmE1OyxrLDssKj87JjBhJCo5fzIsJzE9K2A8KDx4eGMpbidpNmApe3hobi52ZiBkcmkqYHp4fmxiZSF2YWV5YGxjZXYjfHo9dShrLSEqKixqImQ7dA==",
+        "dashUrl": "ITItPyZtbmE1OyxrLDssKj87JjBhJCo5fzIsJzE9K2AwJTw/fGN5biJpMWApYi1ucnxiN316InR7ZTJ0Y21kcHNsNmN6YmRgbH92fDBpbyRwJWAjLjotKTI9OGEsNCI="
+      }
+    }
+  }
+}
