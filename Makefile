@@ -1,6 +1,7 @@
 CRYSTAL ?= crystal
 CC ?= cc
 CXX ?= c++
+BUN ?= bun
 RUST_FEATURES ?=
 MESON ?= meson
 NATIVE_BUILD ?= build/native
@@ -70,7 +71,7 @@ test-rust: lib
 
 test-bun: lib
 	test/run_with_server.sh env RILL_LIBRARY=$(CURDIR)/build/librill.so \
-		bun run bindings/bun/smoke.ts
+		$(BUN) run bindings/bun/smoke.ts
 
 test-node: lib
 	cd bindings/node && npx --yes node-gyp rebuild
