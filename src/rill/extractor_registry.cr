@@ -4,6 +4,7 @@ require "./errors"
 require "./extractor"
 require "./extractors/dash"
 require "./extractors/direct_media"
+require "./extractors/generic"
 require "./extractors/hls"
 require "./extractors/internet_archive"
 require "./extractors/m3u"
@@ -28,6 +29,7 @@ module Rill
       registry.register(Extractors::Dash)
       registry.register(Extractors::M3u)
       registry.register(Extractors::DirectMedia)
+      registry.register(Extractors::Generic)
       registry
     end
 

@@ -12,7 +12,7 @@ const rill = require("./index.js");
   assert.ok(json.includes('"title": "clip"'));
 
   await assert.rejects(
-    rill.extractJson("https://example.com/page.html"),
+    rill.extractJson("ftp://example.com/page.html"),
     (error) => error.code === "unsupported_url",
   );
 

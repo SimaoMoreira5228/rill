@@ -11,7 +11,7 @@ fn smoke() {
     let json = rill_media::extract_json("https://example.com/clip.mp4", None).expect("extract");
     assert!(json.contains("\"title\": \"clip\""));
 
-    let error = rill_media::extract_json("https://example.com/page.html", None).expect_err("error");
+    let error = rill_media::extract_json("ftp://example.com/page.html", None).expect_err("error");
     assert_eq!(error.kind(), Some("unsupported_url"));
 
     let url = env::var("RILL_C_API_TEST_URL").ok();

@@ -26,7 +26,7 @@ int main() {
 
   bool failed = false;
   try {
-    rill::extract_json("https://example.com/page.html");
+    rill::extract_json("ftp://example.com/page.html");
   } catch (const rill::Error &error) {
     failed = true;
     assert(error.code() == RILL_ERROR_EXTRACTION);

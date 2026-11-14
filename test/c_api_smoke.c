@@ -145,7 +145,7 @@ int main(void) {
   rill_job_free(job);
 
   status = rill_extract_json(
-      "https://example.com/page.html", NULL, &json, &error, &code);
+      "ftp://example.com/page.html", NULL, &json, &error, &code);
   assert(status == RILL_ERROR_EXTRACTION);
   assert(json == NULL);
   assert(error != NULL);

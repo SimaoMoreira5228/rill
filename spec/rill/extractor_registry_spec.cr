@@ -79,7 +79,9 @@ describe Rill::ExtractorRegistry do
       .should eq(Rill::Extractors::M3u)
     registry.extractor_for("https://example.com/manifest.mpd")
       .should eq(Rill::Extractors::Dash)
-    registry.extractor_for("https://example.com/watch").should be_nil
+    registry.extractor_for("https://example.com/watch")
+      .should eq(Rill::Extractors::Generic)
+    registry.extractors.last.should eq(Rill::Extractors::Generic)
   end
 
   it "rejects unsupported URLs" do

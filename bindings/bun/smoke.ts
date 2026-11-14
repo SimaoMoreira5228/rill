@@ -26,7 +26,7 @@ assert(asyncJson.includes('"title": "clip"'), "async extraction result");
 
 let failed = false;
 try {
-  await extractJson("https://example.com/page.html");
+  await extractJson("ftp://example.com/page.html");
 } catch (error) {
   failed = true;
   assert(error instanceof RillError, "expected RillError");
