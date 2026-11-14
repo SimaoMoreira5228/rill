@@ -8,11 +8,12 @@ require "../format"
 require "../http_url"
 require "../json_value"
 require "../media"
+require "../playlist"
 
 module Rill::Extractors
   class Mixcloud < Extractor
     DEFAULT_API_BASE = "https://app.mixcloud.com"
-    PATH             = %r{\A/([^/]+)/([^/]+)/?\z}
+    DEFAULT_LIST     = "uploads"
     ISO_DATE         = /\A\d{4}-\d{2}-\d{2}/
     DECRYPTION_KEY   = "IFYOUWANTTHEARTISTSTOGETPAIDDONOTDOWNLOADFROMMIXCLOUD"
     FIELDS           = "name description audioLength publishDate restrictedReason " \
@@ -21,6 +22,37 @@ module Rill::Extractors
                        "streamInfo { url hlsUrl dashUrl }"
 
     RESERVED_SLUGS = %w(stream uploads favorites listens playlists)
+
+    CLOUDCAST_PATH = %r{\A/([^/]+)/([^/]+)/?\z}
+    USER_LIST_PATH = %r{\A/([^/]+)/(uploads|favorites|listens|stream)/?\z}
+    PLAYLIST_PATH  = %r{\A/([^/]+)/playlists/([^/]+)/?\z}
+    USER_PATH      = %r{\A/([^/]+)/?\z}
+
+    struct CloudcastRoute
+      getter username : String
+      getter slug : String
+
+      def initialize(@username : String, @slug : String)
+      end
+    end
+
+    struct UserRoute
+      getter username : String
+      getter list : String
+
+      def initialize(@username : String, @list : String)
+      end
+    end
+
+    struct PlaylistRoute
+      getter username : String
+      getter slug : String
+
+      def initialize(@username : String, @slug : String)
+      end
+    end
+
+    alias Route = CloudcastRoute | UserRoute | PlaylistRoute
 
     def initialize(@api_base : String = DEFAULT_API_BASE)
       @api_base = @api_base.rstrip('/')
@@ -41,21 +73,58 @@ module Rill::Extractors
       end
     end
 
-    def extract(url : URI, client : HTTPClient) : Media
-      parts = lookup(url.path)
-      unless parts
+    def extract(url : URI, client : HTTPClient) : Media | Playlist
+      route = lookup(url.path)
+      unless route
         raise UnsupportedUrlError.new(url.to_s)
       end
 
-      username, slug = parts
-      cloudcast = fetch_cloudcast(client, username, slug, url)
+      case route
+      when CloudcastRoute
+        extract_cloudcast(route, url, client)
+      when UserRoute
+        extract_user(route, url, client)
+      when PlaylistRoute
+        extract_playlist(route, url, client)
+      else
+        raise UnsupportedUrlError.new(url.to_s)
+      end
+    end
+
+    private def lookup(path : String) : Route?
+      if match = PLAYLIST_PATH.match(path)
+        return PlaylistRoute.new(match[1], match[2])
+      end
+
+      if match = USER_LIST_PATH.match(path)
+        return UserRoute.new(match[1], match[2])
+      end
+
+      if match = CLOUDCAST_PATH.match(path)
+        username = match[1]
+        slug = match[2]
+        return CloudcastRoute.new(username, slug) unless RESERVED_SLUGS.includes?(slug.downcase)
+      end
+
+      match = USER_PATH.match(path)
+      return nil unless match
+
+      UserRoute.new(match[1], DEFAULT_LIST)
+    end
+
+    private def extract_cloudcast(
+      route : CloudcastRoute,
+      url : URI,
+      client : HTTPClient,
+    ) : Media
+      cloudcast = fetch_cloudcast(client, route.username, route.slug, url)
       check_restrictions(cloudcast, url)
       title = title(cloudcast, url)
       duration = JsonValue.seconds(cloudcast["audioLength"]?)
       format = audio_format(cloudcast, url, duration)
 
       Media.new(
-        id: "#{username}_#{slug}",
+        id: "#{route.username}_#{route.slug}",
         title: title,
         description: JsonValue.string(cloudcast["description"]?),
         webpage_url: url,
@@ -68,15 +137,85 @@ module Rill::Extractors
       )
     end
 
-    private def lookup(path : String) : Tuple(String, String)?
-      match = PATH.match(path)
-      return nil unless match
+    private def extract_user(
+      route : UserRoute,
+      url : URI,
+      client : HTTPClient,
+    ) : Playlist
+      entries = [] of PlaylistEntry
+      display_name = nil
+      biography = nil
+      cursor = nil
 
-      username = match[1]
-      slug = match[2]
-      return nil if RESERVED_SLUGS.includes?(slug.downcase)
+      loop do
+        query = user_query(route.username, route.list, cursor)
+        user = graphql_root(client, query, "userLookup", url, "user")
+        display_name ||= JsonValue.string(user["displayName"]?)
+        biography ||= JsonValue.string(user["biog"]?)
+        connection = user[route.list]?.try(&.as_h?)
+        break unless connection
 
-      {username, slug}
+        append_cloudcast_entries(connection, entries)
+        cursor = next_cursor(connection)
+        break unless cursor
+      end
+
+      if entries.empty?
+        raise MediaUnavailableError.new(url.to_s, "user has no #{route.list} entries")
+      end
+
+      title = display_name || route.username
+
+      Playlist.new(
+        id: "#{route.username}_#{route.list}",
+        title: "#{title} (#{route.list})",
+        description: biography,
+        webpage_url: url,
+        extractor: name,
+        entries: entries,
+      )
+    end
+
+    private def extract_playlist(
+      route : PlaylistRoute,
+      url : URI,
+      client : HTTPClient,
+    ) : Playlist
+      entries = [] of PlaylistEntry
+      playlist_name = nil
+      description = nil
+      cursor = nil
+
+      loop do
+        query = playlist_query(route.username, route.slug, cursor)
+        playlist = graphql_root(client, query, "playlistLookup", url, "playlist")
+        playlist_name ||= JsonValue.string(playlist["name"]?)
+        description ||= JsonValue.string(playlist["description"]?)
+        connection = playlist["items"]?.try(&.as_h?)
+        break unless connection
+
+        append_playlist_entries(connection, entries)
+        cursor = next_cursor(connection)
+        break unless cursor
+      end
+
+      if entries.empty?
+        raise MediaUnavailableError.new(url.to_s, "playlist has no entries")
+      end
+
+      title = playlist_name
+      unless title
+        raise MediaUnavailableError.new(url.to_s, "playlist name is missing")
+      end
+
+      Playlist.new(
+        id: "#{route.username}_#{route.slug}",
+        title: title,
+        description: description,
+        webpage_url: url,
+        extractor: name,
+        entries: entries,
+      )
     end
 
     private def fetch_cloudcast(
@@ -85,31 +224,173 @@ module Rill::Extractors
       slug : String,
       url : URI,
     ) : Hash(String, JSON::Any)
-      query = <<-GRAPHQL
+      query = cloudcast_query(username, slug)
+      graphql_root(client, query, "cloudcastLookup", url, "cloudcast")
+    end
+
+    private def graphql_root(
+      client : HTTPClient,
+      query : String,
+      lookup : String,
+      url : URI,
+      label : String,
+    ) : Hash(String, JSON::Any)
+      endpoint = URI.parse("#{@api_base}/graphql")
+      endpoint.query = URI::Params.encode({"query" => query})
+      response = client.get(endpoint)
+      payload = JSON.parse(response.body)
+      data = payload["data"]?.try(&.as_h?)
+      root = data.try { |hash| hash[lookup]?.try(&.as_h?) }
+      unless root
+        raise MediaUnavailableError.new(url.to_s, "#{label} was not found")
+      end
+
+      root
+    rescue JSON::ParseException
+      raise MediaUnavailableError.new(url.to_s, "GraphQL response is not valid JSON")
+    rescue ex : HTTPError
+      if ex.status.code == 404
+        raise MediaUnavailableError.new(url.to_s, "#{label} was not found")
+      end
+
+      raise ex
+    end
+
+    private def cloudcast_query(username : String, slug : String) : String
+      <<-GRAPHQL
         {
           cloudcastLookup(lookup: {username: #{username.to_json}, slug: #{slug.to_json}}) {
             #{FIELDS}
           }
         }
         GRAPHQL
+    end
 
-      endpoint = URI.parse("#{@api_base}/graphql")
-      endpoint.query = URI::Params.encode({"query" => query})
-      response = client.get(endpoint)
-      payload = JSON.parse(response.body)
-      data = payload["data"]?.try(&.as_h?)
-      cloudcast = data.try { |hash| hash["cloudcastLookup"]?.try(&.as_h?) }
-      unless cloudcast
-        raise MediaUnavailableError.new(url.to_s, "cloudcast was not found")
+    private def user_query(username : String, list : String, cursor : String?) : String
+      after = cursor_clause(cursor)
+      <<-GRAPHQL
+        {
+          userLookup(lookup: {username: #{username.to_json}}) {
+            displayName
+            biog
+            #{list}(first: 100#{after}) {
+              edges {
+                node {
+                  name
+                  slug
+                  url
+                  owner { username }
+                }
+              }
+              pageInfo {
+                endCursor
+                hasNextPage
+              }
+            }
+          }
+        }
+        GRAPHQL
+    end
+
+    private def playlist_query(username : String, slug : String, cursor : String?) : String
+      after = cursor_clause(cursor)
+      <<-GRAPHQL
+        {
+          playlistLookup(lookup: {username: #{username.to_json}, slug: #{slug.to_json}}) {
+            name
+            description
+            items(first: 100#{after}) {
+              edges {
+                node {
+                  cloudcast {
+                    name
+                    slug
+                    url
+                    owner { username }
+                  }
+                }
+              }
+              pageInfo {
+                endCursor
+                hasNextPage
+              }
+            }
+          }
+        }
+        GRAPHQL
+    end
+
+    private def cursor_clause(cursor : String?) : String
+      return "" unless cursor
+
+      ", after: #{cursor.to_json}"
+    end
+
+    private def append_cloudcast_entries(
+      connection : Hash(String, JSON::Any),
+      entries : Array(PlaylistEntry),
+    ) : Nil
+      edges = connection["edges"]?.try(&.as_a?)
+      return unless edges
+
+      edges.each do |edge|
+        node = edge.as_h?
+        next unless node
+
+        cloudcast = node["node"]?.try(&.as_h?)
+        next unless cloudcast
+
+        entry = cloudcast_entry(cloudcast)
+        entries << entry if entry
       end
+    end
 
-      cloudcast
-    rescue JSON::ParseException
-      raise MediaUnavailableError.new(url.to_s, "GraphQL response is not valid JSON")
-    rescue ex : HTTPError
-      raise MediaUnavailableError.new(url.to_s, "cloudcast was not found") if ex.status.code == 404
+    private def append_playlist_entries(
+      connection : Hash(String, JSON::Any),
+      entries : Array(PlaylistEntry),
+    ) : Nil
+      edges = connection["edges"]?.try(&.as_a?)
+      return unless edges
 
-      raise ex
+      edges.each do |edge|
+        node = edge.as_h?
+        next unless node
+
+        item = node["node"]?.try(&.as_h?)
+        next unless item
+
+        cloudcast = item["cloudcast"]?.try(&.as_h?)
+        next unless cloudcast
+
+        entry = cloudcast_entry(cloudcast)
+        entries << entry if entry
+      end
+    end
+
+    private def cloudcast_entry(cloudcast : Hash(String, JSON::Any)) : PlaylistEntry?
+      cloudcast_url = HttpUrl.absolute(JsonValue.string(cloudcast["url"]?))
+      return nil unless cloudcast_url
+
+      slug = JsonValue.string(cloudcast["slug"]?)
+      owner = cloudcast["owner"]?.try(&.as_h?)
+      owner_username = owner.try { |hash| JsonValue.string(hash["username"]?) }
+      id = if slug && owner_username
+             "#{owner_username}_#{slug}"
+           end
+
+      PlaylistEntry.new(
+        url: cloudcast_url,
+        title: JsonValue.string(cloudcast["name"]?),
+        id: id,
+      )
+    end
+
+    private def next_cursor(connection : Hash(String, JSON::Any)) : String?
+      page_info = connection["pageInfo"]?.try(&.as_h?)
+      return nil unless page_info
+      return nil unless page_info["hasNextPage"]?.try(&.as_bool?)
+
+      JsonValue.string(page_info["endCursor"]?)
     end
 
     private def check_restrictions(cloudcast : Hash(String, JSON::Any), url : URI) : Nil
