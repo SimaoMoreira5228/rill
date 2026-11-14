@@ -152,3 +152,44 @@ end
 fun rill_free_string(value : UInt8*) : Void
   Rill::CAPI::Memory.free(value)
 end
+
+fun rill_download_start(
+  url : UInt8*,
+  output_path : UInt8*,
+  options_json : UInt8*,
+  error_out : UInt8**,
+) : Rill::CAPI::JobPtr
+  error_out.value = Pointer(UInt8).null unless error_out.null?
+
+  job = Rill::CAPI::WorkerPool.create_download_job(url, output_path, options_json)
+  if job.null? && !error_out.null?
+    error_out.value = Rill::CAPI::Memory.copy_string("failed to create download job")
+  end
+
+  job
+end
+
+fun rill_download_poll(
+  job : Rill::CAPI::JobPtr,
+  state_out : Int32*,
+  downloaded_out : Int64*,
+  total_out : Int64*,
+) : Int32
+  Rill::CAPI::Job.poll(job, state_out, downloaded_out, total_out)
+end
+
+fun rill_download_error(job : Rill::CAPI::JobPtr) : UInt8*
+  Rill::CAPI::Job.error_message(job)
+end
+
+fun rill_download_error_code(job : Rill::CAPI::JobPtr) : UInt8*
+  Rill::CAPI::Job.error_code(job)
+end
+
+fun rill_download_cancel(job : Rill::CAPI::JobPtr) : Int32
+  Rill::CAPI::Job.cancel(job)
+end
+
+fun rill_download_free(job : Rill::CAPI::JobPtr) : Void
+  Rill::CAPI::Job.free(job)
+end

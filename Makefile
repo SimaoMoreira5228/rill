@@ -53,9 +53,9 @@ test-media: media-helper
 	$(CRYSTAL) spec spec/rill/media_muxer_spec.cr
 
 test-c-api: lib
-	mkdir -p bin
+	mkdir -p bin build
 	$(CC) -Iinclude -o bin/c_api_smoke test/c_api_smoke.c $(C_LINK_FLAGS) -lpthread
-	./bin/c_api_smoke
+	test/run_c_api.sh
 
 clean:
 	rm -rf bin build

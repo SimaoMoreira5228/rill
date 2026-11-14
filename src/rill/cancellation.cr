@@ -2,8 +2,15 @@ require "./errors"
 
 module Rill
   class Cancellation
-    def initialize
+    @cancelled : Atomic(Bool)
+    @checker : Proc(Bool)?
+
+    def initialize(@checker : Proc(Bool)? = nil)
       @cancelled = Atomic(Bool).new(false)
+    end
+
+    def self.watch(&block : -> Bool) : self
+      new(block)
     end
 
     def cancel! : Nil
@@ -11,7 +18,8 @@ module Rill
     end
 
     def cancelled? : Bool
-      @cancelled.get
+      checker = @checker
+      checker ? checker.call : @cancelled.get
     end
 
     def check! : Nil
