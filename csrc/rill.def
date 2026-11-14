@@ -1,0 +1,16 @@
+LIBRARY rill
+EXPORTS
+  rill_abi_version
+  rill_init
+  rill_shutdown
+  rill_job_new
+  rill_job_wait
+  rill_job_free
+  rill_extract_json
+  rill_download_start
+  rill_download_poll
+  rill_download_error
+  rill_download_error_code
+  rill_download_cancel
+  rill_download_free
+  rill_free_string
