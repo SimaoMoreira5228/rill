@@ -1,0 +1,70 @@
+{
+  "contents": {
+    "twoColumnBrowseResultsRenderer": {
+      "tabs": [
+        {
+          "tabRenderer": {
+            "title": "Videos",
+            "selected": true,
+            "content": {
+              "richGridRenderer": {
+                "contents": [
+                  {
+                    "richItemRenderer": {
+                      "content": {
+                        "lockupViewModel": {
+                          "contentId": "aaaaaaaaaaa",
+                          "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+                          "metadata": {
+                            "lockupMetadataViewModel": {
+                              "title": {
+                                "content": "First channel video"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "richItemRenderer": {
+                      "content": {
+                        "lockupViewModel": {
+                          "contentId": "bbbbbbbbbbb",
+                          "contentType": "LOCKUP_CONTENT_TYPE_VIDEO",
+                          "metadata": {
+                            "lockupMetadataViewModel": {
+                              "title": {
+                                "content": "Second channel video"
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "continuationItemRenderer": {
+                      "continuationEndpoint": {
+                        "continuationCommand": {
+                          "token": "channel-next-token"
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "metadata": {
+    "channelMetadataRenderer": {
+      "title": "Test channel",
+      "externalId": "UCtestchannel000000000",
+      "description": "A channel used by the specs"
+    }
+  }
+}

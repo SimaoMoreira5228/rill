@@ -22,7 +22,7 @@ Current site extractors:
 - Internet Archive
 - media.ccc.de
 - PeerTube
-- YouTube videos and playlists
+- YouTube videos, playlists, and channels
 - Spotify track lookup through YouTube
 - Bandcamp
 - Rumble

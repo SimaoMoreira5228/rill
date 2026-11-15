@@ -55,18 +55,8 @@ module Rill::Extractors
     end
 
     private def playlist_bootstrap(client : HTTPClient, playlist_id : String) : Bootstrap
-      headers = HTTP::Headers.new
-      headers["User-Agent"] = WATCH_PAGE_USER_AGENT
-      headers["Accept-Language"] = "en-US,en;q=0.9"
-
       endpoint = "#{@api_base}/playlist?list=#{playlist_id}"
-      body = client.get(endpoint, headers).body
-
-      visitor = body.match(/"VISITOR_DATA":"([^"]+)"/) ||
-                body.match(/"visitorData":"([^"]+)"/)
-      api_key = body.match(/"INNERTUBE_API_KEY":"([^"]+)"/)
-
-      Bootstrap.new(visitor.try(&.[1]), api_key.try(&.[1]))
+      page_bootstrap(client.get(endpoint, page_headers).body)
     rescue Rill::Error
       Bootstrap.new
     end
