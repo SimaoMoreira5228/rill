@@ -1,8 +1,6 @@
 import { CString, dlopen, FFIType, ptr } from "bun:ffi";
 import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { Worker } from "node:worker_threads";
 
 const libraryName =
   process.platform === "darwin"
@@ -26,7 +24,6 @@ function platformKey(): string {
 
 const platformDirectory = join(import.meta.dir, "native", platformKey());
 
-const workerPath = fileURLToPath(new URL("./extract-worker.ts", import.meta.url));
 
 function configureMediaHelper(): void {
   if (process.env.RILL_MEDIA_HELPER) {
@@ -238,45 +235,7 @@ export function extractJsonSync(url: string, options?: string): string {
 }
 
 export async function extractJson(url: string, options?: string): Promise<string> {
-  return await new Promise((resolve, reject) => {
-    const worker = new Worker(workerPath, {
-      workerData: { url, options, libraryPath },
-    });
-
-    let settled = false;
-
-    worker.once("message", (message) => {
-      settled = true;
-
-      if (message.ok) {
-        resolve(message.json);
-      } else {
-        reject(
-          new RillError(
-            message.error.code ?? 2,
-            message.error.message,
-            message.error.kind,
-          ),
-        );
-      }
-
-      worker.terminate();
-    });
-
-    worker.once("error", (error) => {
-      if (!settled) {
-        settled = true;
-        reject(new RillError(2, error instanceof Error ? error.message : String(error), "internal"));
-      }
-    });
-
-    worker.once("exit", (code) => {
-      if (!settled) {
-        settled = true;
-        reject(new RillError(2, `extraction worker exited with ${code}`, "internal"));
-      }
-    });
-  });
+  return extractJsonSync(url, options);
 }
 
 export class Download {

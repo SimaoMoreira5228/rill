@@ -8,7 +8,6 @@
   "types": "index.ts",
   "files": [
     "index.ts",
-    "extract-worker.ts",
     "scripts/**/*",
     "native-src/**/*",
     "native/**/*",

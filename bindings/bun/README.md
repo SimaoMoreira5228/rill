@@ -37,7 +37,7 @@ const asyncJson = await extractJson("https://example.com/clip.mp4");
 shutdown();
 ```
 
-`extractJson` runs in a worker so the main event loop is not blocked.
+`extractJson` returns a promise and runs on the calling thread. It blocks until extraction completes.
 
 ## Download
 
