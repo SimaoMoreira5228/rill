@@ -28,7 +28,7 @@ Current site extractors:
 - Rumble
 - SoundCloud tracks and sets
 - Mixcloud cloudcasts, user lists, and playlists
-- Twitch clips
+- Twitch clips and VODs
 
 HLS, DASH, M3U playlists, and direct media URLs are handled without a site extractor.
 

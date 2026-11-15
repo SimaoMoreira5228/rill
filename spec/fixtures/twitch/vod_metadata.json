@@ -1,0 +1,21 @@
+[
+  {
+    "data": {
+      "video": {
+        "id": "635475444",
+        "title": "Riot Games",
+        "description": "A recorded broadcast",
+        "previewThumbnailURL": "https://static-cdn.jtvnw.net/cf_vods/example/thumb0-90x60.jpg",
+        "createdAt": "2020-05-29T16:42:49Z",
+        "publishedAt": "2020-05-29T16:42:49Z",
+        "viewCount": 3878,
+        "lengthSeconds": 11643,
+        "broadcastType": "ARCHIVE",
+        "owner": {
+          "displayName": "Riot Games",
+          "login": "riotgames"
+        }
+      }
+    }
+  }
+]

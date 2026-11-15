@@ -66,8 +66,7 @@ module Rill::Extractors
       end
 
       formats = playlist.variants.map_with_index do |variant, index|
-        kind = separate_audio?(playlist, variant) ? FormatKind::Video : FormatKind::Combined
-        format_for_variant(variant, index, kind, container, probe.live)
+        format_for_variant(variant, index, variant_kind(playlist, variant), container, probe.live)
       end
 
       warnings = [] of String
@@ -91,6 +90,31 @@ module Rill::Extractors
         warnings: warnings,
         is_live: probe.live,
       )
+    end
+
+    private def variant_kind(
+      playlist : Rill::Hls::MultivariantPlaylist,
+      variant : Rill::Hls::Variant,
+    ) : FormatKind
+      return FormatKind::Video if separate_audio?(playlist, variant)
+      return FormatKind::Audio if audio_only?(variant)
+
+      FormatKind::Combined
+    end
+
+    private def audio_only?(variant : Rill::Hls::Variant) : Bool
+      return false if variant.width || variant.height
+
+      codecs = variant.codecs
+      return false unless codecs
+
+      codecs.split(',').all? do |codec|
+        name = codec.strip.downcase
+        name.starts_with?("mp4a") || name.starts_with?("ac-3") ||
+          name.starts_with?("ec-3") || name.starts_with?("opus") ||
+          name.starts_with?("flac") || name.starts_with?("mp3") ||
+          name.starts_with?("alac")
+      end
     end
 
     private def separate_audio?(

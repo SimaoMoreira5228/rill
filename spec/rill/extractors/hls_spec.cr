@@ -48,6 +48,32 @@ describe Rill::Extractors::Hls do
     end
   end
 
+  it "marks variants without resolution and with audio codecs as audio" do
+    server = TestHTTPServer.new
+    server.on("/master.m3u8") do |_, response|
+      response.print(<<-M3U8)
+        #EXTM3U
+        #EXT-X-STREAM-INF:BANDWIDTH=800000,RESOLUTION=640x360,CODECS="avc1.4d401e,mp4a.40.2"
+        low/index.m3u8
+        #EXT-X-STREAM-INF:BANDWIDTH=160000,CODECS="mp4a.40.2"
+        audio/index.m3u8
+      M3U8
+    end
+    server.on("/low/index.m3u8") do |_, response|
+      response.print("#EXTM3U\n#EXTINF:4,\nseg.ts\n#EXT-X-ENDLIST\n")
+    end
+    server.start
+
+    begin
+      media = extractor.extract(URI.parse("#{server.url}/master.m3u8"), Rill::HTTPClient.new)
+
+      media.formats[0].kind.should eq(Rill::FormatKind::Combined)
+      media.formats[1].kind.should eq(Rill::FormatKind::Audio)
+    ensure
+      server.close
+    end
+  end
+
   it "extracts separate-audio variants" do
     server = TestHTTPServer.new
     server.on("/master.m3u8") do |_, response|

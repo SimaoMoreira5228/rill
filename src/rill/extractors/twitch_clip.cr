@@ -9,17 +9,18 @@ require "../format"
 require "../http_url"
 require "../json_value"
 require "../media"
+require "./twitch/gql"
 
 module Rill::Extractors
   class TwitchClip < Extractor
-    DEFAULT_ENDPOINT  = "https://gql.twitch.tv/gql"
-    CLIENT_ID         = "ue6666qo983tsx6so1t0vnawi233wa"
+    DEFAULT_ENDPOINT  = TwitchGql::DEFAULT_ENDPOINT
     OPERATION_HASH    = "2db6a3b20eabf510bd3cf465ae2408834b59eb6b8af89ca73ab1486cacecfb63"
     SLUG_PATTERN      = /\A[A-Za-z0-9_-]+\z/
     CLIP_PATH         = %r{\A/([A-Za-z0-9_-]+)/?\z}
     CHANNEL_CLIP_PATH = %r{\A/[^/]+/clip/([A-Za-z0-9_-]+)/?\z}
 
-    def initialize(@endpoint : String = DEFAULT_ENDPOINT)
+    def initialize(endpoint : String = DEFAULT_ENDPOINT)
+      @gql = TwitchGql.new(endpoint)
     end
 
     def name : String
@@ -104,23 +105,13 @@ module Rill::Extractors
       client : HTTPClient,
       url : URI,
     ) : Hash(String, JSON::Any)
-      response = client.post(@endpoint, request_body(slug), request_headers)
-      clip = parsed_clip(response.body)
+      clip = parsed_clip(@gql.post(client, request_body(slug)))
 
       unless clip
         raise MediaUnavailableError.new(url.to_s, "clip is unavailable")
       end
 
       clip
-    rescue JSON::ParseException
-      raise MediaUnavailableError.new(url.to_s, "clip response is not valid JSON")
-    end
-
-    private def request_headers : HTTP::Headers
-      headers = HTTP::Headers.new
-      headers["Client-ID"] = CLIENT_ID
-      headers["Content-Type"] = "text/plain;charset=UTF-8"
-      headers
     end
 
     private def request_body(slug : String) : String
@@ -148,8 +139,8 @@ module Rill::Extractors
       end
     end
 
-    private def parsed_clip(body : String) : Hash(String, JSON::Any)?
-      payload = JSON.parse(body).as_a?
+    private def parsed_clip(response : JSON::Any) : Hash(String, JSON::Any)?
+      payload = response.as_a?
       return nil unless payload
 
       element = payload.first?.try(&.as_h?)

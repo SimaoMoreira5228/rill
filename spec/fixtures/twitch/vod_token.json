@@ -1,0 +1,8 @@
+{
+  "data": {
+    "videoPlaybackAccessToken": {
+      "value": "{\"authorization\":{\"forbidden\":false},\"video_id\":\"635475444\"}",
+      "signature": "abcdef0123456789"
+    }
+  }
+}
