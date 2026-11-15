@@ -12,6 +12,7 @@ require "./format"
 require "./hls/parser"
 require "./hls/playlist"
 require "./http_client"
+require "./downloader/hls"
 require "./media_muxer"
 require "./segment_assembly"
 require "./request_options"
@@ -599,5 +600,3 @@ module Rill
     end
   end
 end
-
-require "./downloader/hls"

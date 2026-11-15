@@ -38,7 +38,7 @@ You need Crystal 1.22 or newer, Meson, Ninja, and the libraries Crystal normally
 
 ```sh
 meson setup build --buildtype=release
-meson compile -C build rill librill
+meson compile -C build rill librill rill-media
 ```
 
 The build produces `build/rill` and `build/librill.so` on Linux, `build/librill.dylib` on macOS, or `build/rill.exe` and `build/rill.dll` on Windows.
