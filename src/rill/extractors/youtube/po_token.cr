@@ -24,6 +24,8 @@ module Rill::Extractors
         payload = JSON.parse(response.body).as_h?
         token = JsonValue.string(payload.try(&.["po_token"]?))
         token if token && !token.empty?
+      rescue ex : CancelledError
+        raise ex
       rescue Rill::Error | JSON::ParseException
         nil
       end

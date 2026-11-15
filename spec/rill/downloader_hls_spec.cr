@@ -358,6 +358,38 @@ describe Rill::Downloader do
     end
   end
 
+  it "propagates the pot query to HLS segments" do
+    seen = [] of String?
+
+    server = TestHTTPServer.new
+    server.on("/hls/media.m3u8") do |_, response|
+      response.print("#EXTM3U\n#EXTINF:4,\nseg.ts\n#EXT-X-ENDLIST\n")
+    end
+    server.on("/hls/seg.ts") do |request, response|
+      seen << request.query_params["pot"]?
+      response.print("AAAA")
+    end
+    server.start
+
+    begin
+      with_temp_dir do |directory|
+        format = Rill::Format.new(
+          format_id: "hls",
+          url: URI.parse("#{server.url}/hls/media.m3u8?pot=token123"),
+          protocol: Rill::FormatProtocol::Hls,
+        )
+
+        target = directory / "media.ts"
+        downloader.download(format, target)
+
+        File.read(target).should eq("AAAA")
+        seen.should eq(["token123"])
+      end
+    ensure
+      server.close
+    end
+  end
+
   it "sends format headers with HLS keys and initialization sections" do
     key_bytes = Bytes.new(16) { |index| (index + 1).to_u8 }
     iv = Bytes.new(16, 5_u8)

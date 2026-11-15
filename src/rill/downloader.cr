@@ -13,6 +13,7 @@ require "./hls/parser"
 require "./hls/playlist"
 require "./http_client"
 require "./downloader/dash"
+require "./downloader/live"
 require "./downloader/hls"
 require "./media_muxer"
 require "./segment_assembly"
@@ -27,6 +28,7 @@ module Rill
 
     class ProgressWriter < IO
       property total : Int64?
+      getter committed : Int64 = 0_i64
 
       def initialize(
         @file : IO,
@@ -48,6 +50,10 @@ module Rill
 
       def flush : Nil
         @file.flush
+      end
+
+      def commit : Nil
+        @committed = @downloaded
       end
 
       def write(slice : Bytes) : Nil

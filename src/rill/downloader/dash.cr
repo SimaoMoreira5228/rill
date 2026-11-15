@@ -97,6 +97,8 @@ module Rill
       end
 
       wrote = false
+      init_written = false
+      writer : ProgressWriter? = nil
 
       File.open(part_path, "w+b") do |file|
         writer = ProgressWriter.new(file, part_path.to_s, 0_i64, cancellation, on_progress)
@@ -118,17 +120,19 @@ module Rill
                                  representation.expand
                                end
 
-          if last_key.nil?
+          unless init_written
             SegmentAssembly.for_dash(mime, !init_url.nil?)
             if init_url
               @http.stream_to(init_url, writer, headers)
               writer.flush
+              writer.commit
               wrote = true
             end
+            init_written = true
           end
 
           if segments.empty?
-            stalled += 1
+            stalled += 1 if last_key
           else
             first_key = segments.first.key
             if last_key && first_key && first_key > last_key + last_step
@@ -145,6 +149,7 @@ module Rill
 
               @http.stream_to(segment.url, writer, headers)
               writer.flush
+              writer.commit
               writer.emit(force: true)
               last_key = key
               last_step = segment.key_step
@@ -172,6 +177,7 @@ module Rill
         writer.emit(force: true)
       end
     rescue ex : CancelledError
+      truncate_part(part_path, writer.try(&.committed) || 0_i64)
       publish_live_part(part_path, target_path, overwrite)
       raise ex
     rescue ex : Rill::Error | IO::Error
@@ -199,6 +205,9 @@ module Rill
 
     private def live_dash_interval(manifest : Dash::Manifest) : Time::Span
       interval = manifest.minimum_update_period || 2.0
+      if window = manifest.time_shift_buffer_depth
+        interval = Math.min(interval, window / 2.0)
+      end
       interval = 1.0 if interval < 1.0
       interval.seconds
     end

@@ -22,6 +22,7 @@ module Rill::CLI
       -c, --cookie NAME=VALUE  Add a request cookie
       -t, --timeout SECONDS    Set the connect and read timeout
       -u, --user-agent AGENT   Set the request user agent
+      --po-token-provider URL  Fetch YouTube PO tokens from a provider
       -h, --help               Show this help
       -v, --version            Show the version
   TEXT

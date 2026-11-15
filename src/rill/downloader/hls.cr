@@ -1,3 +1,6 @@
+require "http/params"
+require "uri"
+
 require "../cancellation"
 require "../download_progress"
 require "../errors"
@@ -11,8 +14,6 @@ require "../segment_assembly"
 
 module Rill
   class Downloader
-    LIVE_STALL_POLLS = 12
-
     private def transfer_hls(
       url : String | URI,
       part_path : Path,
@@ -24,13 +25,15 @@ module Rill
     ) : Nil
       response = @http.get(url, headers)
       playlist = Hls::Parser.parse(response.body, response.url)
+      parsed_url = url.is_a?(URI) ? url : URI.parse(url)
+      pot = HTTP::Params.parse(parsed_url.query || "")["pot"]?
 
       unless playlist.is_a?(Hls::MediaPlaylist)
         raise UnsupportedManifestError.new("nested HLS master playlists are not supported")
       end
 
       if playlist.ended
-        transfer_hls_vod(playlist, part_path, cancellation, on_progress, headers)
+        transfer_hls_vod(playlist, part_path, cancellation, on_progress, headers, pot)
       else
         transfer_hls_live(
           playlist,
@@ -41,6 +44,7 @@ module Rill
           cancellation,
           on_progress,
           headers,
+          pot,
         )
       end
     end
@@ -51,6 +55,7 @@ module Rill
       cancellation : Cancellation?,
       on_progress : Proc(DownloadProgress, Nil)?,
       headers : HTTP::Headers? = nil,
+      pot : String? = nil,
     ) : Nil
       validate_hls_vod(playlist)
       validate_hls_assembly(playlist)
@@ -61,11 +66,11 @@ module Rill
         keys = {} of String => Bytes
 
         if map_url = playlist.map_url
-          @http.stream_to(map_url, writer, headers)
+          @http.stream_to(with_pot(map_url, pot), writer, headers)
         end
 
         playlist.segments.each_with_index do |segment, index|
-          stream_hls_segment(segment, writer, playlist.media_sequence + index, keys, headers)
+          stream_hls_segment(segment, writer, playlist.media_sequence + index, keys, headers, pot)
         end
 
         writer.emit(force: true)
@@ -84,9 +89,11 @@ module Rill
       cancellation : Cancellation?,
       on_progress : Proc(DownloadProgress, Nil)?,
       headers : HTTP::Headers? = nil,
+      pot : String? = nil,
     ) : Nil
       validate_hls_live(playlist)
       validate_hls_assembly(playlist)
+      writer : ProgressWriter? = nil
 
       File.open(part_path, "w+b") do |file|
         writer = ProgressWriter.new(file, part_path.to_s, 0_i64, cancellation, on_progress)
@@ -105,9 +112,10 @@ module Rill
             )
           end
 
-          written_map = write_live_map(current, writer, written_map, headers)
+          written_map = write_live_map(current, writer, written_map, headers, pot)
+          writer.commit
           previous = next_sequence
-          next_sequence = download_live_segments(current, writer, next_sequence, keys, headers)
+          next_sequence = download_live_segments(current, writer, next_sequence, keys, headers, pot)
           if next_sequence == previous && !current.ended
             stalled_polls += 1
             if stalled_polls >= LIVE_STALL_POLLS
@@ -122,7 +130,7 @@ module Rill
           sleep(live_interval(current))
           cancellation.try(&.check!)
 
-          response = @http.get(playlist_url, headers)
+          response = @http.get(with_pot(playlist_url, pot), headers)
           cancellation.try(&.check!)
 
           refreshed = Hls::Parser.parse(response.body, response.url)
@@ -138,6 +146,7 @@ module Rill
         writer.emit(force: true)
       end
     rescue ex : CancelledError
+      truncate_part(part_path, writer.try(&.committed) || 0_i64)
       publish_live_part(part_path, target_path, overwrite)
       raise ex
     rescue ex : Rill::Error | IO::Error
@@ -150,6 +159,7 @@ module Rill
       writer : ProgressWriter,
       written_map : String?,
       headers : HTTP::Headers?,
+      pot : String?,
     ) : String?
       map_url = playlist.map_url
       return written_map unless map_url
@@ -157,7 +167,7 @@ module Rill
       key = map_url.to_s
       return written_map if written_map == key
 
-      @http.stream_to(map_url, writer, headers)
+      @http.stream_to(with_pot(map_url, pot), writer, headers)
       key
     end
 
@@ -167,12 +177,15 @@ module Rill
       next_sequence : Int64,
       keys : Hash(String, Bytes),
       headers : HTTP::Headers?,
+      pot : String?,
     ) : Int64
       playlist.segments.each_with_index do |segment, index|
         sequence = playlist.media_sequence + index
         next if sequence < next_sequence
 
-        stream_hls_segment(segment, writer, sequence, keys, headers)
+        stream_hls_segment(segment, writer, sequence, keys, headers, pot)
+        writer.flush
+        writer.commit
         writer.emit(force: true)
         next_sequence = sequence + 1
       end
@@ -186,16 +199,18 @@ module Rill
       sequence : Int64,
       keys : Hash(String, Bytes),
       headers : HTTP::Headers?,
+      pot : String?,
     ) : Nil
+      url = with_pot(segment.url, pot)
       key = segment.key
       unless key
-        @http.stream_to(segment.url, destination, headers)
+        @http.stream_to(url, destination, headers)
         return
       end
 
-      cipher = Hls::Decryption.cipher(key, hls_key(key, keys, headers), sequence)
+      cipher = Hls::Decryption.cipher(key, hls_key(key, keys, headers, pot), sequence)
       writer = Hls::DecryptingWriter.new(destination, cipher)
-      @http.stream_to(segment.url, writer, headers)
+      @http.stream_to(url, writer, headers)
       writer.finish
     end
 
@@ -203,6 +218,7 @@ module Rill
       key : Hls::Key,
       keys : Hash(String, Bytes),
       headers : HTTP::Headers?,
+      pot : String?,
     ) : Bytes
       url = key.url
       unless url
@@ -214,7 +230,7 @@ module Rill
         return cached
       end
 
-      bytes = @http.get(url, headers).body.to_slice
+      bytes = @http.get(with_pot(url, pot), headers).body.to_slice
       unless bytes.size == 16
         raise ManifestError.new("HLS AES-128 key is #{bytes.size} bytes, expected 16")
       end
@@ -236,17 +252,14 @@ module Rill
       interval.seconds
     end
 
-    private def publish_live_part(part_path : Path, target_path : Path, overwrite : Bool) : Nil
-      return unless File.exists?(part_path)
+    private def with_pot(url : URI, pot : String?) : URI
+      return url unless pot
 
-      if File.size(part_path) == 0
-        remove_part(part_path)
-        return
-      end
-
-      publish(part_path, target_path, overwrite)
-    rescue Rill::Error
-      # Keep the part file when the final name is already taken.
+      params = HTTP::Params.parse(url.query || "")
+      params["pot"] = pot
+      updated = url.dup
+      updated.query = params.to_s
+      updated
     end
 
     private def validate_hls_assembly(playlist : Hls::MediaPlaylist) : Nil

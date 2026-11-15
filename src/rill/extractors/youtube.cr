@@ -193,7 +193,7 @@ module Rill::Extractors
         begin
           player_token = nil
           gvs_token = nil
-          if player_client.name == "web"
+          if player_client.name == WEB.name
             player_token, gvs_token = web_po_tokens(client, video_id, bootstrap)
           end
 
@@ -213,7 +213,7 @@ module Rill::Extractors
           if details["isLiveContent"]?.try(&.as_bool?)
             if hls_url = live_hls_url(payload)
               hls_url = with_pot(hls_url, gvs_token) if gvs_token
-              return build_live_media(details, payload, hls_url, video_id, url, client)
+              return build_live_media(details, payload, hls_url, video_id, url, client, gvs_token)
             end
 
             formats = formats_from(payload["streamingData"]?, client, bootstrap, gvs_token)
@@ -368,10 +368,15 @@ module Rill::Extractors
       video_id : String,
       url : URI,
       client : HTTPClient,
+      pot : String? = nil,
     ) : Media
       hls_media = Rill::Extractors::Hls.new.extract(hls_url, client)
       live = hls_media.is_live?
       duration = live ? nil : JsonValue.seconds(details["lengthSeconds"]?)
+      formats = hls_media.formats
+      if pot
+        formats = formats.map { |format| format.with_url(with_pot(format.url, pot)) }
+      end
 
       Media.new(
         id: JsonValue.string(details["videoId"]?) || video_id,
@@ -383,7 +388,7 @@ module Rill::Extractors
         thumbnail_url: thumbnail_url(details),
         upload_date: upload_date(payload),
         extractor: name,
-        formats: hls_media.formats,
+        formats: formats,
         warnings: hls_media.warnings,
         is_live: live,
       )

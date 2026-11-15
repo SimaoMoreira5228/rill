@@ -4,8 +4,9 @@ require "../errors"
 require "../mime_type"
 
 module Rill::Dash
-  DURATION = /\AP(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?\z/
-  TEMPLATE = /\$(\$|RepresentationID|Bandwidth|Number|Time)(?:%0(\d+)d)?\$/
+  DURATION                    = /\AP(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?(?:(\d+(?:\.\d+)?)S)?)?\z/
+  DEFAULT_LIVE_WINDOW_SECONDS = 300.0
+  TEMPLATE                    = /\$(\$|RepresentationID|Bandwidth|Number|Time)(?:%0(\d+)d)?\$/
 
   struct Segment
     getter url : URI
@@ -109,6 +110,7 @@ module Rill::Dash
                      bandwidth,
                      now,
                      availability_start_time,
+                     window,
                    )
                  end
 
@@ -128,25 +130,22 @@ module Rill::Dash
         raise UnsupportedManifestError.new("live DASH segment template needs a duration")
       end
 
-      start = availability_start_time
-      unless start
+      availability_start = availability_start_time
+      unless availability_start
         raise UnsupportedManifestError.new("live DASH segment template needs availabilityStartTime")
       end
 
-      elapsed = (now - start).total_seconds
+      elapsed = (now - availability_start).total_seconds
       return [] of Segment if elapsed < 0
 
       available = (elapsed * @timescale).floor.to_i64
       last_index = available // duration - 1
       return [] of Segment if last_index < 0
 
-      first_index = if window && window > 0
-                      window_segments = (window * @timescale / duration).ceil.to_i64
-                      start = last_index - Math.max(window_segments - 1, 0)
-                      start < 0 ? 0_i64 : start
-                    else
-                      0_i64
-                    end
+      effective_window = window && window > 0 ? window : DEFAULT_LIVE_WINDOW_SECONDS
+      window_segments = (effective_window * @timescale / duration).ceil.to_i64
+      first_index = last_index - Math.max(window_segments - 1, 0)
+      first_index = 0_i64 if first_index < 0
 
       segments = [] of Segment
       (first_index..last_index).each do |index|
@@ -170,16 +169,22 @@ module Rill::Dash
       bandwidth : Int64?,
       now : Time,
       availability_start_time : Time?,
+      window : Float64?,
     ) : Array(Segment)
-      segments = [] of Segment
-      number = @start_number
-      current_time = @presentation_time_offset
-      start = availability_start_time
-      unless start
+      availability_start = availability_start_time
+      unless availability_start
         raise UnsupportedManifestError.new("live DASH segment timeline needs availabilityStartTime")
       end
 
-      now_ticks = ((now - start).total_seconds * @timescale).to_i64
+      now_ticks = ((now - availability_start).total_seconds * @timescale).to_i64 +
+                  @presentation_time_offset
+      effective_window = window && window > 0 ? window : DEFAULT_LIVE_WINDOW_SECONDS
+      window_start = now_ticks - (effective_window * @timescale).to_i64
+
+      first_entry_time = @timeline.first?.try(&.time) || @presentation_time_offset
+      first_entry_duration = @timeline.first?.try(&.duration) || 1_i64
+      segments = [] of Segment
+      current_time = @presentation_time_offset
 
       @timeline.each do |entry|
         start_time = entry.time || current_time
@@ -190,15 +195,18 @@ module Rill::Dash
           repeats = 0_i64 if repeats < 0
         end
 
+        number = @start_number + (start_time - first_entry_time) // first_entry_duration
         (repeats + 1).times do |index|
           time = start_time + index * entry.duration
-          value = Dash.expand_template(@media, reference, bandwidth, number, time)
-          segments << Segment.new(
-            Dash.resolve_url(base_url, value),
-            entry.duration.to_f / @timescale,
-            time_based? ? time : number,
-            time_based? ? entry.duration : 1_i64,
-          )
+          if time + entry.duration > window_start
+            value = Dash.expand_template(@media, reference, bandwidth, number, time)
+            segments << Segment.new(
+              Dash.resolve_url(base_url, value),
+              entry.duration.to_f / @timescale,
+              time_based? ? time : number,
+              time_based? ? entry.duration : 1_i64,
+            )
+          end
           number += 1
         end
 

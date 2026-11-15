@@ -186,7 +186,11 @@ module Rill::Dash::Parser
       media = attribute(segment_node, "media")
       next unless media
 
-      segments << Segment.new(Dash.resolve_url(base_url, media))
+      segments << Segment.new(
+        Dash.resolve_url(base_url, media),
+        nil,
+        segments.size.to_i64,
+      )
     end
 
     SegmentList.new(init_url, segments)
