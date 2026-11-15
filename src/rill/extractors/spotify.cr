@@ -59,6 +59,9 @@ module Rill::Extractors
         URI.parse("https://www.youtube.com/watch?v=#{match.video_id}"),
         client,
       )
+      unless youtube_media.is_a?(Media)
+        raise MediaUnavailableError.new(url.to_s, "YouTube match is not a single video")
+      end
 
       warnings = [
         "Spotify provides no DRM-free stream; formats were resolved from YouTube: " \

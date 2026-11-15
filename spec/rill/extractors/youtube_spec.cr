@@ -15,7 +15,9 @@ describe Rill::Extractors::YouTube do
     extractor.matches?(URI.parse("https://music.youtube.com/watch?v=dQw4w9WgXcQ")).should be_true
 
     extractor.matches?(URI.parse("https://www.youtube.com/watch?v=short")).should be_false
-    extractor.matches?(URI.parse("https://www.youtube.com/playlist?list=abc")).should be_false
+    extractor.matches?(URI.parse("https://www.youtube.com/playlist?list=abc")).should be_true
+    extractor.matches?(URI.parse("https://www.youtube.com/playlist")).should be_false
+    extractor.matches?(URI.parse("https://example.com/playlist?list=abc")).should be_false
     extractor.matches?(URI.parse("https://example.com/watch?v=dQw4w9WgXcQ")).should be_false
   end
 
@@ -34,7 +36,7 @@ describe Rill::Extractors::YouTube do
       media = extractor.extract(
         URI.parse("https://www.youtube.com/watch?v=dQw4w9WgXcQ"),
         Rill::HTTPClient.new,
-      )
+      ).as(Rill::Media)
       media.validate!
 
       media.id.should eq("dQw4w9WgXcQ")
@@ -140,7 +142,7 @@ describe Rill::Extractors::YouTube do
       media = extractor.extract(
         URI.parse("https://www.youtube.com/watch?v=dQw4w9WgXcQ"),
         Rill::HTTPClient.new,
-      )
+      ).as(Rill::Media)
 
       media.title.should eq("Fallback")
       media.formats.size.should eq(1)
@@ -203,7 +205,7 @@ describe Rill::Extractors::YouTube do
       media = extractor.extract(
         URI.parse("https://www.youtube.com/watch?v=live1234567"),
         Rill::HTTPClient.new,
-      )
+      ).as(Rill::Media)
       media.validate!
 
       media.is_live?.should be_true
@@ -296,7 +298,7 @@ describe Rill::Extractors::YouTube do
       media = extractor.extract(
         URI.parse("https://www.youtube.com/watch?v=dQw4w9WgXcQ"),
         Rill::HTTPClient.new,
-      )
+      ).as(Rill::Media)
 
       media.is_live?.should be_false
       media.formats.size.should eq(1)

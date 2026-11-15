@@ -22,7 +22,8 @@ module Rill::Extractors
     VISIONOS_USER_AGENT   = "Mozilla/5.0 (Macintosh; Intel Mac OS X 15_7_3) " \
                             "AppleWebKit/605.1.15 (KHTML, like Gecko) " \
                             "Version/26.0 Safari/605.1.15"
-    VIDEO_ID = /\A[A-Za-z0-9_-]{11}\z/
+    VIDEO_ID    = /\A[A-Za-z0-9_-]{11}\z/
+    PLAYLIST_ID = /\A[A-Za-z0-9_-]{2,}\z/
 
     HOSTS = {
       "youtube.com",
@@ -164,10 +165,14 @@ module Rill::Extractors
     def matches?(url : URI) : Bool
       return false unless url.scheme == "http" || url.scheme == "https"
 
-      !video_id_for(url).nil?
+      !video_id_for(url).nil? || !playlist_id_for(url).nil?
     end
 
-    def extract(url : URI, client : HTTPClient) : Media
+    def extract(url : URI, client : HTTPClient) : Media | Playlist
+      if playlist_id = playlist_id_for(url)
+        return extract_playlist(url, playlist_id, client)
+      end
+
       video_id = video_id_for(url)
       unless video_id
         raise UnsupportedUrlError.new(url.to_s)
@@ -736,3 +741,5 @@ module Rill::Extractors
 end
 
 require "./youtube/solver"
+
+require "./youtube/playlist"
