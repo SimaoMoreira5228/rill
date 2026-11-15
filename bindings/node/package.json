@@ -1,6 +1,6 @@
 {
   "name": "rill-node",
-  "version": "2026.11.20",
+  "version": "2026.11.21",
   "description": "Node.js bindings for Rill, a media extractor and downloader with yt-dlp-style site extractors",
   "license": "Apache-2.0",
   "main": "index.js",
