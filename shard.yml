@@ -1,5 +1,5 @@
 name: rill
-version: 2026.11.21
+version: 2026.11.22
 crystal: ">= 1.22.0"
 license: Apache-2.0
 description: Media extractor and downloader with yt-dlp-style site extractors

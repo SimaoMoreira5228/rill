@@ -1,6 +1,6 @@
 {
   "name": "rill-bun",
-  "version": "2026.11.21",
+  "version": "2026.11.22",
   "description": "Bun bindings for Rill, a media extractor and downloader with yt-dlp-style site extractors",
   "license": "Apache-2.0",
   "type": "module",

@@ -56,7 +56,7 @@ Enable the `tokio` feature for `extract_json_async` and `Download::wait_async`:
 
 ```toml
 [dependencies]
-rill-media = { version = "2026.11.21", features = ["tokio"] }
+rill-media = { version = "2026.11.22", features = ["tokio"] }
 ```
 
 The raw C declarations stay private. The public API uses opaque download handles and Rust-owned errors.
