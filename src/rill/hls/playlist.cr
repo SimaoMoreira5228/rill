@@ -32,11 +32,31 @@ module Rill::Hls
     end
   end
 
+  struct Key
+    getter method : String
+    getter url : URI?
+    getter iv : Bytes?
+    getter key_format : String
+
+    def initialize(
+      @method : String,
+      @url : URI? = nil,
+      @iv : Bytes? = nil,
+      @key_format : String = "identity",
+    )
+    end
+
+    def identity? : Bool
+      key_format == "identity"
+    end
+  end
+
   struct Segment
     getter url : URI
     getter duration : Float64
     getter title : String?
     getter byte_range : ByteRange?
+    getter key : Key?
     getter? discontinuity : Bool
 
     def initialize(
@@ -44,6 +64,7 @@ module Rill::Hls
       @duration : Float64 = 0.0,
       @title : String? = nil,
       @byte_range : ByteRange? = nil,
+      @key : Key? = nil,
       @discontinuity : Bool = false,
     )
     end
@@ -76,7 +97,6 @@ module Rill::Hls
     getter map_byte_range : ByteRange?
     getter duration_seconds : Float64
     getter ended : Bool
-    getter encrypted : Bool
     getter target_duration : Float64?
     getter media_sequence : Int64
     getter discontinuity_sequence : Int64
@@ -85,13 +105,16 @@ module Rill::Hls
       @segments : Array(Segment),
       @duration_seconds : Float64,
       @ended : Bool,
-      @encrypted : Bool,
       @map_url : URI? = nil,
       @map_byte_range : ByteRange? = nil,
       @target_duration : Float64? = nil,
       @media_sequence : Int64 = 0_i64,
       @discontinuity_sequence : Int64 = 0_i64,
     )
+    end
+
+    def encrypted? : Bool
+      segments.any?(&.key)
     end
   end
 

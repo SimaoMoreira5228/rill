@@ -1,6 +1,9 @@
 require "../cancellation"
 require "../download_progress"
 require "../errors"
+require "../hls/decrypting_writer"
+require "../hls/decryption"
+require "../hls/encryption"
 require "../hls/parser"
 require "../hls/playlist"
 require "../http_client"
@@ -52,13 +55,14 @@ module Rill
       File.open(part_path, "w+b") do |file|
         writer = ProgressWriter.new(file, part_path.to_s, 0_i64, cancellation, on_progress)
         writer.emit(force: true)
+        keys = {} of String => Bytes
 
         if map_url = playlist.map_url
           @http.stream_to(map_url, writer)
         end
 
-        playlist.segments.each do |segment|
-          @http.stream_to(segment.url, writer)
+        playlist.segments.each_with_index do |segment, index|
+          stream_hls_segment(segment, writer, playlist.media_sequence + index, keys)
         end
 
         writer.emit(force: true)
@@ -87,6 +91,7 @@ module Rill
         current = playlist
         next_sequence = live_start_sequence(current)
         stalled_polls = 0
+        keys = {} of String => Bytes
 
         loop do
           if current.media_sequence > next_sequence
@@ -96,7 +101,7 @@ module Rill
           end
 
           previous = next_sequence
-          next_sequence = download_live_segments(current, writer, next_sequence)
+          next_sequence = download_live_segments(current, writer, next_sequence, keys)
           if next_sequence == previous && !current.ended
             stalled_polls += 1
             if stalled_polls >= LIVE_STALL_POLLS
@@ -138,17 +143,55 @@ module Rill
       playlist : Hls::MediaPlaylist,
       writer : ProgressWriter,
       next_sequence : Int64,
+      keys : Hash(String, Bytes),
     ) : Int64
       playlist.segments.each_with_index do |segment, index|
         sequence = playlist.media_sequence + index
         next if sequence < next_sequence
 
-        @http.stream_to(segment.url, writer)
+        stream_hls_segment(segment, writer, sequence, keys)
         writer.emit(force: true)
         next_sequence = sequence + 1
       end
 
       next_sequence
+    end
+
+    private def stream_hls_segment(
+      segment : Hls::Segment,
+      destination : IO,
+      sequence : Int64,
+      keys : Hash(String, Bytes),
+    ) : Nil
+      key = segment.key
+      unless key
+        @http.stream_to(segment.url, destination)
+        return
+      end
+
+      cipher = Hls::Decryption.cipher(key, hls_key(key, keys), sequence)
+      writer = Hls::DecryptingWriter.new(destination, cipher)
+      @http.stream_to(segment.url, writer)
+      writer.finish
+    end
+
+    private def hls_key(key : Hls::Key, keys : Hash(String, Bytes)) : Bytes
+      url = key.url
+      unless url
+        raise UnsupportedManifestError.new("HLS AES-128 key has no URI")
+      end
+
+      cache_key = url.to_s
+      if cached = keys[cache_key]?
+        return cached
+      end
+
+      bytes = @http.get(url).body.to_slice
+      unless bytes.size == 16
+        raise ManifestError.new("HLS AES-128 key is #{bytes.size} bytes, expected 16")
+      end
+
+      keys[cache_key] = bytes
     end
 
     private def live_start_sequence(playlist : Hls::MediaPlaylist) : Int64
@@ -187,9 +230,7 @@ module Rill
     end
 
     private def validate_hls_vod(playlist : Hls::MediaPlaylist) : Nil
-      if playlist.encrypted
-        raise UnsupportedManifestError.new("encrypted HLS playlists are not supported")
-      end
+      Hls::Encryption.validate(playlist)
 
       unless playlist.ended
         raise UnsupportedManifestError.new("live HLS playlists are not supported")
@@ -205,9 +246,7 @@ module Rill
     end
 
     private def validate_hls_live(playlist : Hls::MediaPlaylist) : Nil
-      if playlist.encrypted
-        raise UnsupportedManifestError.new("encrypted HLS playlists are not supported")
-      end
+      Hls::Encryption.validate(playlist)
 
       if playlist.map_url
         raise UnsupportedManifestError.new("live HLS with initialization sections is not supported")

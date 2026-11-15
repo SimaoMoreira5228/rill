@@ -3,6 +3,7 @@ require "uri"
 require "../errors"
 require "../extractor"
 require "../format"
+require "../hls/encryption"
 require "../hls/parser"
 require "../hls/playlist"
 require "../media"
@@ -152,9 +153,7 @@ module Rill::Extractors
     private def validate_live_variant(playlist : Rill::Hls::MediaPlaylist?) : Nil
       return unless playlist
 
-      if playlist.encrypted
-        raise UnsupportedManifestError.new("encrypted live HLS is not supported")
-      end
+      Rill::Hls::Encryption.validate(playlist)
 
       if playlist.map_url
         raise UnsupportedManifestError.new("live HLS with initialization sections is not supported")

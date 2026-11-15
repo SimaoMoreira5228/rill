@@ -164,7 +164,7 @@ module Rill::Hls::Parser
     segments = [] of Segment
     map_url : URI? = nil
     map_byte_range : ByteRange? = nil
-    encrypted = false
+    current_key : Key? = nil
     ended = false
     duration = 0.0
     pending_duration = 0.0
@@ -180,9 +180,7 @@ module Rill::Hls::Parser
       when line.starts_with?(EXTINF)
         pending_duration, pending_title = parse_extinf(line[EXTINF.size..])
       when line.starts_with?(KEY)
-        attributes = parse_attributes(line[KEY.size..])
-        method = attributes["METHOD"]?
-        encrypted = true unless method.nil? || method == "NONE"
+        current_key = parse_key(parse_attributes(line[KEY.size..]), base_url)
       when line.starts_with?(MAP)
         attributes = parse_attributes(line[MAP.size..])
         uri = attributes["URI"]?
@@ -212,6 +210,7 @@ module Rill::Hls::Parser
           duration: pending_duration,
           title: pending_title,
           byte_range: pending_range,
+          key: current_key,
           discontinuity: pending_discontinuity,
         )
         duration += pending_duration
@@ -228,13 +227,44 @@ module Rill::Hls::Parser
       segments: segments,
       duration_seconds: duration,
       ended: ended,
-      encrypted: encrypted,
       map_url: map_url,
       map_byte_range: map_byte_range,
       target_duration: target_duration,
       media_sequence: media_sequence,
       discontinuity_sequence: discontinuity_sequence,
     )
+  end
+
+  private def parse_key(
+    attributes : Hash(String, String),
+    base_url : URI,
+  ) : Key?
+    method = attributes["METHOD"]?
+    return nil if method.nil? || method == "NONE"
+
+    uri = attributes["URI"]?
+    iv = attributes["IV"]?.try { |value| parse_iv(value) }
+
+    Key.new(
+      method: method.upcase,
+      url: uri ? resolve(uri, base_url) : nil,
+      iv: iv,
+      key_format: attributes["KEYFORMAT"]? || "identity",
+    )
+  end
+
+  private def parse_iv(value : String) : Bytes
+    hex = value.starts_with?("0x") || value.starts_with?("0X") ? value[2..] : value
+    number = hex.size == 32 ? hex.to_u128?(16) : nil
+    unless number
+      raise ManifestError.new("invalid HLS key IV: #{value}")
+    end
+
+    bytes = Bytes.new(16)
+    16.times do |index|
+      bytes[index] = ((number >> (8 * (15 - index))) & 0xff).to_u8
+    end
+    bytes
   end
 
   private def parse_target_duration(value : String) : Float64

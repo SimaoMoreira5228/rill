@@ -8,6 +8,14 @@ private def hls_format(url : String) : Rill::Format
   )
 end
 
+private def hls_encrypt(plain : Bytes, key : Bytes, iv : Bytes) : Bytes
+  cipher = OpenSSL::Cipher.new("aes-128-cbc")
+  cipher.encrypt
+  cipher.key = key
+  cipher.iv = iv
+  cipher.update(plain) + cipher.final
+end
+
 private def hls_audio_ffmpeg_available? : Bool
   Process.run(
     "ffmpeg",
@@ -262,12 +270,57 @@ describe Rill::Downloader do
     end
   end
 
-  it "rejects encrypted HLS playlists" do
+  it "decrypts AES-128 HLS segments and caches the key" do
+    key_bytes = Bytes.new(16) { |index| (index + 1).to_u8 }
+    iv = Bytes.new(16, 3_u8)
+    first = "first encrypted segment".to_slice
+    second = "second encrypted segment".to_slice
+    key_requests = 0
+
     server = TestHTTPServer.new
     server.on("/hls/media.m3u8") do |_, response|
       response.print(<<-M3U8)
         #EXTM3U
-        #EXT-X-KEY:METHOD=AES-128,URI="key.bin"
+        #EXT-X-MEDIA-SEQUENCE:7
+        #EXT-X-KEY:METHOD=AES-128,URI="key.bin",IV=0x03030303030303030303030303030303
+        #EXTINF:4,
+        seg0.ts
+        #EXTINF:4,
+        seg1.ts
+        #EXT-X-ENDLIST
+      M3U8
+    end
+    server.on("/hls/key.bin") do |_, response|
+      key_requests += 1
+      response.write(key_bytes)
+    end
+    {"/hls/seg0.ts" => first, "/hls/seg1.ts" => second}.each do |path, plain|
+      encrypted = hls_encrypt(plain, key_bytes, iv)
+      server.on(path) do |_, response|
+        response.write(encrypted)
+      end
+    end
+    server.start
+
+    begin
+      with_temp_dir do |directory|
+        target = directory / "media.ts"
+        downloader.download(hls_format("#{server.url}/hls/media.m3u8"), target)
+
+        File.read(target).should eq("first encrypted segmentsecond encrypted segment")
+        key_requests.should eq(1)
+      end
+    ensure
+      server.close
+    end
+  end
+
+  it "rejects unsupported HLS encryption methods" do
+    server = TestHTTPServer.new
+    server.on("/hls/media.m3u8") do |_, response|
+      response.print(<<-M3U8)
+        #EXTM3U
+        #EXT-X-KEY:METHOD=SAMPLE-AES,URI="key.bin"
         #EXTINF:4,
         seg.ts
         #EXT-X-ENDLIST
@@ -279,7 +332,7 @@ describe Rill::Downloader do
       with_temp_dir do |directory|
         target = directory / "media.ts"
 
-        expect_raises(Rill::UnsupportedManifestError, /encrypted HLS/) do
+        expect_raises(Rill::UnsupportedManifestError, /SAMPLE-AES/) do
           downloader.download(hls_format("#{server.url}/hls/media.m3u8"), target)
         end
       end

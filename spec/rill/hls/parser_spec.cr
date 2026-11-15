@@ -66,7 +66,7 @@ describe Rill::Hls::Parser do
     playlist.media_sequence.should eq(0)
     playlist.discontinuity_sequence.should eq(0)
     playlist.ended.should be_true
-    playlist.encrypted.should be_false
+    playlist.encrypted?.should be_false
   end
 
   it "parses live sequence and discontinuity tags" do
@@ -102,7 +102,7 @@ describe Rill::Hls::Parser do
     playlist.media_sequence.should eq(10)
   end
 
-  it "marks encrypted playlists" do
+  it "marks encrypted playlists and their segments" do
     playlist = parse_playlist(<<-M3U8).as(Rill::Hls::MediaPlaylist)
       #EXTM3U
       #EXT-X-KEY:METHOD=AES-128,URI="key.bin"
@@ -111,7 +111,42 @@ describe Rill::Hls::Parser do
       #EXT-X-ENDLIST
     M3U8
 
-    playlist.encrypted.should be_true
+    playlist.encrypted?.should be_true
+
+    key = playlist.segments[0].key.not_nil!
+    key.method.should eq("AES-128")
+    key.url.not_nil!.to_s.should eq("https://example.com/path/key.bin")
+    key.iv.should be_nil
+    key.identity?.should be_true
+  end
+
+  it "parses an explicit key IV" do
+    playlist = parse_playlist(<<-M3U8).as(Rill::Hls::MediaPlaylist)
+      #EXTM3U
+      #EXT-X-KEY:METHOD=AES-128,URI="key.bin",IV=0x000102030405060708090A0B0C0D0E0F
+      #EXTINF:4,
+      seg.ts
+      #EXT-X-ENDLIST
+    M3U8
+
+    iv = playlist.segments[0].key.not_nil!.iv.not_nil!
+    iv.should eq(Bytes[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+  end
+
+  it "drops the key after METHOD=NONE" do
+    playlist = parse_playlist(<<-M3U8).as(Rill::Hls::MediaPlaylist)
+      #EXTM3U
+      #EXT-X-KEY:METHOD=AES-128,URI="key.bin"
+      #EXTINF:4,
+      first.ts
+      #EXT-X-KEY:METHOD=NONE
+      #EXTINF:4,
+      second.ts
+      #EXT-X-ENDLIST
+    M3U8
+
+    playlist.segments[0].key.should_not be_nil
+    playlist.segments[1].key.should be_nil
   end
 
   it "allows METHOD=NONE keys" do
@@ -123,7 +158,7 @@ describe Rill::Hls::Parser do
       #EXT-X-ENDLIST
     M3U8
 
-    playlist.encrypted.should be_false
+    playlist.encrypted?.should be_false
   end
 
   it "marks live playlists" do
