@@ -92,6 +92,7 @@ module Rill
         next_sequence = live_start_sequence(current)
         stalled_polls = 0
         keys = {} of String => Bytes
+        written_map : String? = nil
 
         loop do
           if current.media_sequence > next_sequence
@@ -100,6 +101,7 @@ module Rill
             )
           end
 
+          written_map = write_live_map(current, writer, written_map)
           previous = next_sequence
           next_sequence = download_live_segments(current, writer, next_sequence, keys)
           if next_sequence == previous && !current.ended
@@ -137,6 +139,21 @@ module Rill
     rescue ex : Rill::Error | IO::Error
       remove_part(part_path) if File.exists?(part_path) && File.size(part_path) == 0
       raise ex
+    end
+
+    private def write_live_map(
+      playlist : Hls::MediaPlaylist,
+      writer : ProgressWriter,
+      written_map : String?,
+    ) : String?
+      map_url = playlist.map_url
+      return written_map unless map_url
+
+      key = map_url.to_s
+      return written_map if written_map == key
+
+      @http.stream_to(map_url, writer)
+      key
     end
 
     private def download_live_segments(
@@ -247,10 +264,6 @@ module Rill
 
     private def validate_hls_live(playlist : Hls::MediaPlaylist) : Nil
       Hls::Encryption.validate(playlist)
-
-      if playlist.map_url
-        raise UnsupportedManifestError.new("live HLS with initialization sections is not supported")
-      end
 
       if playlist.map_byte_range
         raise UnsupportedManifestError.new("HLS map byte ranges are not supported")

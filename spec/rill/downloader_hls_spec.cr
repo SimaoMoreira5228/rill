@@ -233,6 +233,44 @@ describe Rill::Downloader do
     end
   end
 
+  it "downloads a live fragmented MP4 playlist with one initialization section" do
+    server = TestHTTPServer.new
+    requests = 0
+    map_requests = 0
+    server.on("/hls/media.m3u8") do |_, response|
+      requests += 1
+      segments = (0...requests).map { |index| "#EXTINF:1,\nseg#{index}.m4s\n" }.join
+      ending = requests >= 3 ? "#EXT-X-ENDLIST\n" : ""
+      response.print(
+        "#EXTM3U\n#EXT-X-TARGETDURATION:1\n#EXT-X-MAP:URI=\"init.mp4\"\n" +
+        segments + ending,
+      )
+    end
+    server.on("/hls/init.mp4") do |_, response|
+      map_requests += 1
+      response.print("INIT")
+    end
+    {"seg0.m4s" => "AAAA", "seg1.m4s" => "BBBB", "seg2.m4s" => "CCCC"}.each do |name, body|
+      server.on("/hls/#{name}") do |_, response|
+        response.print(body)
+      end
+    end
+    server.start
+
+    begin
+      with_temp_dir do |directory|
+        target = directory / "media.mp4"
+
+        downloader.download(hls_format("#{server.url}/hls/media.m3u8"), target)
+
+        File.read(target).should eq("INITAAAABBBBCCCC")
+        map_requests.should eq(1)
+      end
+    ensure
+      server.close
+    end
+  end
+
   it "reports a skipped live window without deleting the recording" do
     server = TestHTTPServer.new
     requests = 0
