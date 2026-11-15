@@ -1,3 +1,3 @@
 module Rill
-  VERSION = "2026.11.22"
+  VERSION = "2026.11.23"
 end
