@@ -45,7 +45,7 @@ describe Rill::Extractors::YouTube do
       media.duration_seconds.not_nil!.should be_close(213.0, 0.01)
       media.formats.size.should eq(27)
 
-      request = server.requests.find { |item| item.method == "POST" }.not_nil!
+      request = server.requests.find { |item| item.method == "POST" && item.path == "/youtubei/v1/player" }.not_nil!
       request.headers["X-YouTube-Client-Name"].should eq("101")
       captured_body.not_nil!.should contain("\"videoId\":\"dQw4w9WgXcQ\"")
 

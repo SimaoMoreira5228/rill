@@ -39,6 +39,49 @@ private def po_player_payload : String
 end
 
 describe Rill::Extractors::YouTube do
+  it "fetches visitor data when the watch page has none" do
+    server = TestHTTPServer.new
+    bindings = [] of String
+
+    server.on("/watch") do |_, response|
+      response.print(%(<script>"INNERTUBE_API_KEY":"test-key"</script>))
+    end
+    server.on("/youtubei/v1/visitor_id") do |_, response|
+      response.print(%({"responseContext":{"visitorData":"fallback123"}}))
+    end
+    server.on("/youtubei/v1/player") do |request, response|
+      body = request.body.try(&.gets_to_end) || ""
+      if body.includes?(%("clientName":"WEB"))
+        response.print(po_player_payload)
+      else
+        response.print(%({"playabilityStatus":{"status":"LOGIN_REQUIRED","reason":"Sign in"}}))
+      end
+    end
+    server.on("/pot") do |request, response|
+      body = request.body.try(&.gets_to_end) || ""
+      binding = JSON.parse(body)["content_binding"].as_s
+      bindings << binding
+      response.print(%({"po_token":"token-for-#{binding}"}))
+    end
+    server.start
+
+    begin
+      options = Rill::RequestOptions.new
+      options.po_token_provider = "#{server.url}/pot"
+
+      extractor = Rill::Extractors::YouTube.new(server.url)
+      media = extractor.extract(
+        URI.parse("https://www.youtube.com/watch?v=dQw4w9WgXcQ"),
+        Rill::HTTPClient.new(options),
+      ).as(Rill::Media)
+
+      bindings.should eq(["fallback123", "dQw4w9WgXcQ"])
+      media.formats.first.url.query.not_nil!.should contain("pot=token-for-dQw4w9WgXcQ")
+    ensure
+      server.close
+    end
+  end
+
   it "uses a PO token provider for the web client" do
     server = TestHTTPServer.new
     player_bodies = [] of String

@@ -1,6 +1,8 @@
 require "http/status"
 require "uri"
 
+require "./redaction"
+
 module Rill
   class Error < Exception
   end
@@ -9,7 +11,7 @@ module Rill
     getter url : String
 
     def initialize(@url : String)
-      super("unsupported URL: #{@url}")
+      super("unsupported URL: #{Redaction.url(@url)}")
     end
   end
 
@@ -20,7 +22,7 @@ module Rill
     getter url : String
 
     def initialize(@url : String, reason : String)
-      super("media unavailable at #{@url}: #{reason}")
+      super("media unavailable at #{Redaction.url(@url)}: #{reason}")
     end
   end
 
@@ -28,7 +30,7 @@ module Rill
     getter url : String
 
     def initialize(@url : String, reason : String)
-      super("invalid extraction result for #{@url}: #{reason}")
+      super("invalid extraction result for #{Redaction.url(@url)}: #{reason}")
     end
   end
 
@@ -38,7 +40,7 @@ module Rill
     getter response_body : String
 
     def initialize(@url : URI, @status : HTTP::Status, @response_body : String)
-      super("#{@url} returned #{@status.code} #{@status.description}")
+      super("#{Redaction.url(@url)} returned #{@status.code} #{@status.description}")
     end
   end
 
@@ -47,7 +49,7 @@ module Rill
     getter limit : Int64
 
     def initialize(@url : URI, @limit : Int64)
-      super("response from #{@url} exceeded #{@limit} bytes")
+      super("response from #{Redaction.url(@url)} exceeded #{@limit} bytes")
     end
   end
 
@@ -56,7 +58,7 @@ module Rill
     getter limit : Int32
 
     def initialize(@url : URI, @limit : Int32)
-      super("request to #{@url} exceeded #{@limit} redirects")
+      super("request to #{Redaction.url(@url)} exceeded #{@limit} redirects")
     end
   end
 
@@ -66,7 +68,9 @@ module Rill
     getter actual_bytes : Int64
 
     def initialize(@url : URI, @expected_bytes : Int64, @actual_bytes : Int64)
-      super("response from #{@url} ended after #{@actual_bytes} of #{@expected_bytes} bytes")
+      super(
+        "response from #{Redaction.url(@url)} ended after #{@actual_bytes} of #{@expected_bytes} bytes",
+      )
     end
   end
 
@@ -74,7 +78,7 @@ module Rill
     getter url : URI
 
     def initialize(@url : URI, cause : Exception)
-      super("request to #{@url} failed: #{cause.message}", cause)
+      super("request to #{Redaction.url(@url)} failed: #{cause.message}", cause)
     end
   end
 

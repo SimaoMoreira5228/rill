@@ -186,7 +186,7 @@ module Rill::Extractors
         raise UnsupportedUrlError.new(url.to_s)
       end
 
-      bootstrap = watch_page(client, video_id)
+      bootstrap = ensure_visitor_data(client, watch_page(client, video_id))
       errors = [] of String
 
       CLIENTS.each do |player_client|
@@ -417,6 +417,49 @@ module Rill::Extractors
                body.match(/"PLAYER_JS_URL":"([^"]+)"/)
 
       Bootstrap.new(visitor.try(&.[1]), api_key.try(&.[1]), js_url.try(&.[1]))
+    end
+
+    private def ensure_visitor_data(client : HTTPClient, bootstrap : Bootstrap) : Bootstrap
+      return bootstrap if bootstrap.visitor_data
+
+      visitor = visitor_id(client)
+      return bootstrap unless visitor
+
+      Bootstrap.new(visitor, bootstrap.api_key, bootstrap.js_url)
+    end
+
+    private def visitor_id(client : HTTPClient) : String?
+      body = JSON.build do |json|
+        json.object do
+          json.field "context" do
+            json.object do
+              json.field "client" do
+                json.object do
+                  json.field "clientName", SEARCH_CLIENT.context["clientName"]
+                  json.field "clientVersion", SEARCH_CLIENT.version
+                  json.field "hl", "en"
+                  json.field "gl", "US"
+                end
+              end
+            end
+          end
+        end
+      end
+
+      headers = HTTP::Headers.new
+      headers["User-Agent"] = SEARCH_CLIENT.user_agent
+      headers["X-YouTube-Client-Name"] = SEARCH_CLIENT.identifier
+      headers["X-YouTube-Client-Version"] = SEARCH_CLIENT.version
+      headers["Origin"] = @api_base
+      headers["Referer"] = "#{@api_base}/"
+
+      endpoint = "#{@api_base}/youtubei/v1/visitor_id?key=#{API_KEY}&prettyPrint=false"
+      response = client.post(endpoint, body, headers)
+      payload = JSON.parse(response.body)
+      context = payload["responseContext"]?.try(&.as_h?)
+      JsonValue.string(context.try(&.["visitorData"]?))
+    rescue Rill::Error | JSON::ParseException
+      nil
     end
 
     private def web_po_tokens(
