@@ -1,3 +1,4 @@
+require "http/headers"
 require "json"
 require "uri"
 
@@ -33,6 +34,7 @@ module Rill
     getter duration_seconds : Float64?
     getter language : String?
     getter note : String?
+    getter headers : HTTP::Headers
     getter? live : Bool
 
     def initialize(
@@ -54,6 +56,7 @@ module Rill
       @duration_seconds : Float64? = nil,
       @language : String? = nil,
       @note : String? = nil,
+      @headers : HTTP::Headers = HTTP::Headers.new,
       @live : Bool = false,
     )
     end
@@ -78,6 +81,7 @@ module Rill
         duration_seconds: duration_seconds,
         language: language,
         note: note,
+        headers: headers,
         live: live?,
       )
     end

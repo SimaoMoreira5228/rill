@@ -54,6 +54,68 @@ describe Rill::HTTPClient do
     end
   end
 
+  it "lets request headers override configured headers" do
+    server = TestHTTPServer.new
+    server.on("/") { |_, response| response.print("ok") }
+    server.start
+
+    begin
+      options = Rill::RequestOptions.new
+      options.headers["Referer"] = "https://options.example/"
+
+      headers = HTTP::Headers.new
+      headers["Referer"] = "https://request.example/"
+
+      Rill::HTTPClient.new(options).get("#{server.url}/", headers)
+
+      server.requests.first.headers.get("Referer").should eq(["https://request.example/"])
+    ensure
+      server.close
+    end
+  end
+
+  it "does not apply the body size limit to HEAD responses" do
+    server = TestHTTPServer.new
+    server.on("/file") do |_, response|
+      response.headers["Content-Type"] = "video/mp4"
+      response.content_length = 2_000_000
+    end
+    server.start
+
+    begin
+      response = http_client(max_response_bytes: 1_000_000).head("#{server.url}/file")
+
+      response.status.should eq(HTTP::Status::OK)
+      response.headers["Content-Length"].should eq("2000000")
+      response.body.should be_empty
+    ensure
+      server.close
+    end
+  end
+
+  it "retries retryable HEAD responses" do
+    requests = 0
+    server = TestHTTPServer.new
+    server.on("/file") do |_, response|
+      requests += 1
+      if requests == 1
+        response.status = :service_unavailable
+      else
+        response.headers["Content-Type"] = "video/mp4"
+      end
+    end
+    server.start
+
+    begin
+      response = http_client(retries: 1).head("#{server.url}/file")
+
+      response.status.should eq(HTTP::Status::OK)
+      requests.should eq(2)
+    ensure
+      server.close
+    end
+  end
+
   it "percent-encodes unsafe request target bytes" do
     server = TestHTTPServer.new
     server.on("/caf%C3%A9") { |_, response| response.print("ok") }
@@ -63,6 +125,31 @@ describe Rill::HTTPClient do
       response = http_client.get("#{server.url}/café")
       response.body.should eq("ok")
       server.requests.first.path.should eq("/caf%C3%A9")
+    ensure
+      server.close
+    end
+  end
+
+  it "follows redirects for HEAD requests without reading a body" do
+    server = TestHTTPServer.new
+    server.on("/start") do |_, response|
+      response.status = :found
+      response.headers["Location"] = "/final"
+    end
+    server.on("/final") do |_, response|
+      response.headers["Content-Type"] = "video/mp4"
+      response.content_length = 1234
+    end
+    server.start
+
+    begin
+      response = http_client.head("#{server.url}/start")
+
+      response.status.should eq(HTTP::Status::OK)
+      response.url.to_s.should eq("#{server.url}/final")
+      response.headers["Content-Type"].should eq("video/mp4")
+      response.body.should be_empty
+      server.requests.last.method.should eq("HEAD")
     ensure
       server.close
     end

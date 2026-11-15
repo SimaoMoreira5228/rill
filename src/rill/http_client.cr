@@ -53,6 +53,12 @@ module Rill
       end
     end
 
+    def head(url : String | URI, headers : HTTP::Headers? = nil) : Response
+      follow_redirects(url, headers) do |current_url, request_headers|
+        attempt_buffered(current_url, request_headers, "HEAD")
+      end
+    end
+
     def post(url : String | URI, body : String, headers : HTTP::Headers? = nil) : Response
       request_headers = HTTP::Headers.new
       copy_headers(headers, request_headers) if headers
@@ -165,7 +171,7 @@ module Rill
           response_headers = response.headers
 
           if status.success?
-            read_body(response, url, body, @options.max_response_bytes)
+            read_body(response, url, body, @options.max_response_bytes) unless method == "HEAD"
           else
             body << read_error_body(response)
           end
@@ -344,7 +350,7 @@ module Rill
       copy_headers(@options.headers, headers)
 
       if extra
-        copy_headers(extra, headers)
+        copy_headers(extra, headers, replace: true)
       end
 
       headers["User-Agent"] ||= @options.user_agent
@@ -403,8 +409,13 @@ module Rill
       cookies
     end
 
-    private def copy_headers(source : HTTP::Headers, destination : HTTP::Headers) : Nil
+    private def copy_headers(
+      source : HTTP::Headers,
+      destination : HTTP::Headers,
+      replace : Bool = false,
+    ) : Nil
       source.each do |name, values|
+        destination.delete(name) if replace
         values.each do |value|
           destination.add(name, value)
         end

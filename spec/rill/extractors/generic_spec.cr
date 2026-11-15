@@ -28,6 +28,7 @@ describe Rill::Extractors::Generic do
       video.height.should eq(720)
       video.duration_seconds.not_nil!.should eq(42.0)
       video.note.should eq("og:video")
+      video.headers["Referer"].should eq("#{server.url}/page")
 
       audio = media.formats.find { |format| format.container == "mp3" }.not_nil!
       audio.kind.should eq(Rill::FormatKind::Audio)

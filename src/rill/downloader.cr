@@ -123,6 +123,7 @@ module Rill
             else             source
             end
       format = source.is_a?(Format) ? source : nil
+      headers = format.try(&.headers)
       target_path = Path.new(target.to_s)
       part_path = Path.new("#{target_path}#{PART_SUFFIX}")
       ensure_not_symlink(part_path)
@@ -134,19 +135,19 @@ module Rill
 
       if format.try(&.protocol.hls?)
         remove_part(part_path)
-        transfer_hls(url, part_path, target_path, overwrite, cancellation, on_progress)
+        transfer_hls(url, part_path, target_path, overwrite, cancellation, on_progress, headers)
       elsif format.try(&.protocol.dash?)
         remove_part(part_path)
-        transfer_dash(url, part_path, format.not_nil!.format_id, cancellation, on_progress)
+        transfer_dash(url, part_path, format.not_nil!.format_id, cancellation, on_progress, headers)
       else
         remove_part(part_path) unless @resume
         chunk_size = format.try(&.range_chunk_size)
         total = format.try(&.filesize)
 
         if chunk_size && total && total > 0
-          transfer_chunked(url, part_path, total, chunk_size, cancellation, on_progress)
+          transfer_chunked(url, part_path, total, chunk_size, cancellation, on_progress, headers)
         else
-          transfer(url, part_path, cancellation, on_progress)
+          transfer(url, part_path, cancellation, on_progress, headers)
         end
       end
 
@@ -225,6 +226,7 @@ module Rill
       chunk_size : Int64,
       cancellation : Cancellation?,
       on_progress : Proc(DownloadProgress, Nil)?,
+      extra_headers : HTTP::Headers? = nil,
     ) : Nil
       validate_meta_url(part_path, url)
       failures = 0
@@ -241,7 +243,7 @@ module Rill
 
         chunk_end = Math.min(offset + chunk_size - 1, total - 1)
         expected = chunk_end - offset + 1
-        headers = HTTP::Headers.new
+        headers = merged_headers(extra_headers)
         headers["Accept-Encoding"] = "identity"
         headers["Range"] = "bytes=#{offset}-#{chunk_end}"
 
@@ -306,6 +308,7 @@ module Rill
       part_path : Path,
       cancellation : Cancellation?,
       on_progress : Proc(DownloadProgress, Nil)?,
+      headers : HTTP::Headers? = nil,
     ) : Nil
       attempt = 0
       validate_meta_url(part_path, url)
@@ -314,7 +317,7 @@ module Rill
         attempt += 1
         offset = current_offset(part_path)
         meta = read_meta(part_path)
-        request_headers = build_request_headers(offset, meta)
+        request_headers = build_request_headers(offset, meta, headers)
         expected_total = nil
 
         begin
@@ -357,6 +360,19 @@ module Rill
       end
     end
 
+    private def merged_headers(source : HTTP::Headers?) : HTTP::Headers
+      headers = HTTP::Headers.new
+      return headers unless source
+
+      source.each do |name, values|
+        values.each do |value|
+          headers.add(name, value)
+        end
+      end
+
+      headers
+    end
+
     private def retryable_status?(status : HTTP::Status) : Bool
       {
         408, 425, 429, 500, 502, 503, 504,
@@ -369,8 +385,9 @@ module Rill
       reference : String,
       cancellation : Cancellation?,
       on_progress : Proc(DownloadProgress, Nil)?,
+      headers : HTTP::Headers? = nil,
     ) : Nil
-      response = @http.get(url)
+      response = @http.get(url, headers)
       manifest = Dash::Parser.parse(response.body, response.url)
       representation = manifest.representations.find { |item| item.reference == reference }
 
@@ -399,11 +416,11 @@ module Rill
         writer.emit(force: true)
 
         if init_url
-          @http.stream_to(init_url, writer)
+          @http.stream_to(init_url, writer, headers)
         end
 
         segments.each do |segment|
-          @http.stream_to(segment.url, writer)
+          @http.stream_to(segment.url, writer, headers)
         end
 
         writer.emit(force: true)
@@ -420,8 +437,12 @@ module Rill
       File.size(part_path)
     end
 
-    private def build_request_headers(offset : Int64, meta : Hash(String, String)) : HTTP::Headers
-      headers = HTTP::Headers.new
+    private def build_request_headers(
+      offset : Int64,
+      meta : Hash(String, String),
+      extra : HTTP::Headers? = nil,
+    ) : HTTP::Headers
+      headers = merged_headers(extra)
       headers["Accept-Encoding"] = "identity"
 
       if offset > 0

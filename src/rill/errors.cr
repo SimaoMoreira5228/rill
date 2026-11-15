@@ -38,7 +38,7 @@ module Rill
     getter response_body : String
 
     def initialize(@url : URI, @status : HTTP::Status, @response_body : String)
-      super("GET #{@url} returned #{@status.code} #{@status.description}")
+      super("#{@url} returned #{@status.code} #{@status.description}")
     end
   end
 

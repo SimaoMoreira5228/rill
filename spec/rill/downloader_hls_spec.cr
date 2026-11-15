@@ -237,8 +237,10 @@ describe Rill::Downloader do
     server = TestHTTPServer.new
     requests = 0
     map_requests = 0
-    server.on("/hls/media.m3u8") do |_, response|
+    seen = [] of String?
+    server.on("/hls/media.m3u8") do |request, response|
       requests += 1
+      seen << request.headers["Referer"]?
       segments = (0...requests).map { |index| "#EXTINF:1,\nseg#{index}.m4s\n" }.join
       ending = requests >= 3 ? "#EXT-X-ENDLIST\n" : ""
       response.print(
@@ -246,12 +248,14 @@ describe Rill::Downloader do
         segments + ending,
       )
     end
-    server.on("/hls/init.mp4") do |_, response|
+    server.on("/hls/init.mp4") do |request, response|
       map_requests += 1
+      seen << request.headers["Referer"]?
       response.print("INIT")
     end
     {"seg0.m4s" => "AAAA", "seg1.m4s" => "BBBB", "seg2.m4s" => "CCCC"}.each do |name, body|
-      server.on("/hls/#{name}") do |_, response|
+      server.on("/hls/#{name}") do |request, response|
+        seen << request.headers["Referer"]?
         response.print(body)
       end
     end
@@ -259,12 +263,22 @@ describe Rill::Downloader do
 
     begin
       with_temp_dir do |directory|
-        target = directory / "media.mp4"
+        headers = HTTP::Headers.new
+        headers["Referer"] = "https://example.com/page"
+        format = Rill::Format.new(
+          format_id: "hls",
+          url: URI.parse("#{server.url}/hls/media.m3u8"),
+          protocol: Rill::FormatProtocol::Hls,
+          headers: headers,
+        )
 
-        downloader.download(hls_format("#{server.url}/hls/media.m3u8"), target)
+        target = directory / "media.mp4"
+        downloader.download(format, target)
 
         File.read(target).should eq("INITAAAABBBBCCCC")
         map_requests.should eq(1)
+        seen.size.should eq(7)
+        seen.each { |value| value.should eq("https://example.com/page") }
       end
     ensure
       server.close
@@ -302,6 +316,98 @@ describe Rill::Downloader do
 
         File.exists?(target).should be_false
         File.read(part).should eq("BBBB")
+      end
+    ensure
+      server.close
+    end
+  end
+
+  it "sends format headers with HLS playlist and segment requests" do
+    seen = [] of String?
+
+    server = TestHTTPServer.new
+    server.on("/hls/media.m3u8") do |request, response|
+      seen << request.headers["Referer"]?
+      response.print("#EXTM3U\n#EXTINF:4,\nseg.ts\n#EXT-X-ENDLIST\n")
+    end
+    server.on("/hls/seg.ts") do |request, response|
+      seen << request.headers["Referer"]?
+      response.print("AAAA")
+    end
+    server.start
+
+    begin
+      with_temp_dir do |directory|
+        headers = HTTP::Headers.new
+        headers["Referer"] = "https://example.com/page"
+        format = Rill::Format.new(
+          format_id: "hls",
+          url: URI.parse("#{server.url}/hls/media.m3u8"),
+          protocol: Rill::FormatProtocol::Hls,
+          headers: headers,
+        )
+
+        target = directory / "media.ts"
+        downloader.download(format, target)
+
+        File.read(target).should eq("AAAA")
+        seen.should eq(["https://example.com/page", "https://example.com/page"])
+      end
+    ensure
+      server.close
+    end
+  end
+
+  it "sends format headers with HLS keys and initialization sections" do
+    key_bytes = Bytes.new(16) { |index| (index + 1).to_u8 }
+    iv = Bytes.new(16, 5_u8)
+    plain = "encrypted segment payload".to_slice
+    encrypted = hls_encrypt(plain, key_bytes, iv)
+    seen = [] of Tuple(String, String?)
+
+    server = TestHTTPServer.new
+    server.on("/hls/media.m3u8") do |request, response|
+      seen << {request.path, request.headers["Referer"]?}
+      response.print(<<-M3U8)
+        #EXTM3U
+        #EXT-X-MAP:URI="init.mp4"
+        #EXT-X-KEY:METHOD=AES-128,URI="key.bin",IV=0x05050505050505050505050505050505
+        #EXTINF:4,
+        seg.m4s
+        #EXT-X-ENDLIST
+      M3U8
+    end
+    server.on("/hls/init.mp4") do |request, response|
+      seen << {request.path, request.headers["Referer"]?}
+      response.print("INIT")
+    end
+    server.on("/hls/key.bin") do |request, response|
+      seen << {request.path, request.headers["Referer"]?}
+      response.write(key_bytes)
+    end
+    server.on("/hls/seg.m4s") do |request, response|
+      seen << {request.path, request.headers["Referer"]?}
+      response.write(encrypted)
+    end
+    server.start
+
+    begin
+      with_temp_dir do |directory|
+        headers = HTTP::Headers.new
+        headers["Referer"] = "https://example.com/page"
+        format = Rill::Format.new(
+          format_id: "hls",
+          url: URI.parse("#{server.url}/hls/media.m3u8"),
+          protocol: Rill::FormatProtocol::Hls,
+          headers: headers,
+        )
+
+        target = directory / "media.mp4"
+        downloader.download(format, target)
+
+        File.read(target).should eq("INITencrypted segment payload")
+        seen.size.should eq(4)
+        seen.each { |entry| entry[1].should eq("https://example.com/page") }
       end
     ensure
       server.close

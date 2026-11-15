@@ -244,6 +244,9 @@ module Rill::Extractors
           @thumbnail_url = HttpUrl.resolve(@base_url, url)
         end
 
+        headers = HTTP::Headers.new
+        headers["Referer"] = @base_url.to_s
+
         @media.each do |entry|
           resolved = resolve_format(entry)
           next unless resolved
@@ -259,6 +262,7 @@ module Rill::Extractors
             height: audio ? nil : @height,
             duration_seconds: @duration_seconds,
             note: entry.note,
+            headers: headers,
           )
         end
       end

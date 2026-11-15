@@ -471,6 +471,84 @@ describe Rill::Downloader do
     end
   end
 
+  it "sends format headers with direct downloads" do
+    server = TestHTTPServer.new
+    server.on("/file") do |request, response|
+      if request.headers["Referer"]? == "https://example.com/page"
+        response.print("ok")
+      else
+        response.status = :forbidden
+        response.print("denied")
+      end
+    end
+    server.start
+
+    begin
+      with_temp_dir do |directory|
+        headers = HTTP::Headers.new
+        headers["Referer"] = "https://example.com/page"
+        format = Rill::Format.new(
+          format_id: "file",
+          url: URI.parse("#{server.url}/file"),
+          headers: headers,
+        )
+
+        target = directory / "file.bin"
+        downloader.download(format, target)
+
+        File.read(target).should eq("ok")
+      end
+    ensure
+      server.close
+    end
+  end
+
+  it "keeps format headers while adding range headers" do
+    body = "abcdef"
+    seen = [] of Tuple(String?, String?)
+
+    server = TestHTTPServer.new
+    server.on("/file") do |request, response|
+      range = request.headers["Range"]?.not_nil!
+      seen << {request.headers["Referer"]?, range}
+      match = /bytes=(\d+)-(\d+)/.match(range).not_nil!
+      start = match[1].to_i64
+      finish = match[2].to_i64
+
+      response.status = :partial_content
+      response.headers["Content-Range"] = "bytes #{start}-#{finish}/#{body.bytesize}"
+      response.content_length = finish - start + 1
+      response.print(body.byte_slice(start, finish - start + 1))
+    end
+    server.start
+
+    begin
+      with_temp_dir do |directory|
+        headers = HTTP::Headers.new
+        headers["Referer"] = "https://example.com/page"
+        format = Rill::Format.new(
+          format_id: "file",
+          url: URI.parse("#{server.url}/file"),
+          filesize: body.bytesize.to_i64,
+          range_chunk_size: 2_i64,
+          headers: headers,
+        )
+
+        target = directory / "file.bin"
+        downloader.download(format, target)
+
+        File.read(target).should eq(body)
+        seen.should eq([
+          {"https://example.com/page", "bytes=0-1"},
+          {"https://example.com/page", "bytes=2-3"},
+          {"https://example.com/page", "bytes=4-5"},
+        ])
+      end
+    ensure
+      server.close
+    end
+  end
+
   it "rejects a malformed partial response" do
     server = TestHTTPServer.new
     server.on("/file") do |_, response|

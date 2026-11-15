@@ -20,8 +20,9 @@ module Rill
       overwrite : Bool,
       cancellation : Cancellation?,
       on_progress : Proc(DownloadProgress, Nil)?,
+      headers : HTTP::Headers? = nil,
     ) : Nil
-      response = @http.get(url)
+      response = @http.get(url, headers)
       playlist = Hls::Parser.parse(response.body, response.url)
 
       unless playlist.is_a?(Hls::MediaPlaylist)
@@ -29,7 +30,7 @@ module Rill
       end
 
       if playlist.ended
-        transfer_hls_vod(playlist, part_path, cancellation, on_progress)
+        transfer_hls_vod(playlist, part_path, cancellation, on_progress, headers)
       else
         transfer_hls_live(
           playlist,
@@ -39,6 +40,7 @@ module Rill
           overwrite,
           cancellation,
           on_progress,
+          headers,
         )
       end
     end
@@ -48,6 +50,7 @@ module Rill
       part_path : Path,
       cancellation : Cancellation?,
       on_progress : Proc(DownloadProgress, Nil)?,
+      headers : HTTP::Headers? = nil,
     ) : Nil
       validate_hls_vod(playlist)
       validate_hls_assembly(playlist)
@@ -58,11 +61,11 @@ module Rill
         keys = {} of String => Bytes
 
         if map_url = playlist.map_url
-          @http.stream_to(map_url, writer)
+          @http.stream_to(map_url, writer, headers)
         end
 
         playlist.segments.each_with_index do |segment, index|
-          stream_hls_segment(segment, writer, playlist.media_sequence + index, keys)
+          stream_hls_segment(segment, writer, playlist.media_sequence + index, keys, headers)
         end
 
         writer.emit(force: true)
@@ -80,6 +83,7 @@ module Rill
       overwrite : Bool,
       cancellation : Cancellation?,
       on_progress : Proc(DownloadProgress, Nil)?,
+      headers : HTTP::Headers? = nil,
     ) : Nil
       validate_hls_live(playlist)
       validate_hls_assembly(playlist)
@@ -101,9 +105,9 @@ module Rill
             )
           end
 
-          written_map = write_live_map(current, writer, written_map)
+          written_map = write_live_map(current, writer, written_map, headers)
           previous = next_sequence
-          next_sequence = download_live_segments(current, writer, next_sequence, keys)
+          next_sequence = download_live_segments(current, writer, next_sequence, keys, headers)
           if next_sequence == previous && !current.ended
             stalled_polls += 1
             if stalled_polls >= LIVE_STALL_POLLS
@@ -118,7 +122,7 @@ module Rill
           sleep(live_interval(current))
           cancellation.try(&.check!)
 
-          response = @http.get(playlist_url)
+          response = @http.get(playlist_url, headers)
           cancellation.try(&.check!)
 
           refreshed = Hls::Parser.parse(response.body, response.url)
@@ -145,6 +149,7 @@ module Rill
       playlist : Hls::MediaPlaylist,
       writer : ProgressWriter,
       written_map : String?,
+      headers : HTTP::Headers?,
     ) : String?
       map_url = playlist.map_url
       return written_map unless map_url
@@ -152,7 +157,7 @@ module Rill
       key = map_url.to_s
       return written_map if written_map == key
 
-      @http.stream_to(map_url, writer)
+      @http.stream_to(map_url, writer, headers)
       key
     end
 
@@ -161,12 +166,13 @@ module Rill
       writer : ProgressWriter,
       next_sequence : Int64,
       keys : Hash(String, Bytes),
+      headers : HTTP::Headers?,
     ) : Int64
       playlist.segments.each_with_index do |segment, index|
         sequence = playlist.media_sequence + index
         next if sequence < next_sequence
 
-        stream_hls_segment(segment, writer, sequence, keys)
+        stream_hls_segment(segment, writer, sequence, keys, headers)
         writer.emit(force: true)
         next_sequence = sequence + 1
       end
@@ -179,20 +185,25 @@ module Rill
       destination : IO,
       sequence : Int64,
       keys : Hash(String, Bytes),
+      headers : HTTP::Headers?,
     ) : Nil
       key = segment.key
       unless key
-        @http.stream_to(segment.url, destination)
+        @http.stream_to(segment.url, destination, headers)
         return
       end
 
-      cipher = Hls::Decryption.cipher(key, hls_key(key, keys), sequence)
+      cipher = Hls::Decryption.cipher(key, hls_key(key, keys, headers), sequence)
       writer = Hls::DecryptingWriter.new(destination, cipher)
-      @http.stream_to(segment.url, writer)
+      @http.stream_to(segment.url, writer, headers)
       writer.finish
     end
 
-    private def hls_key(key : Hls::Key, keys : Hash(String, Bytes)) : Bytes
+    private def hls_key(
+      key : Hls::Key,
+      keys : Hash(String, Bytes),
+      headers : HTTP::Headers?,
+    ) : Bytes
       url = key.url
       unless url
         raise UnsupportedManifestError.new("HLS AES-128 key has no URI")
@@ -203,7 +214,7 @@ module Rill
         return cached
       end
 
-      bytes = @http.get(url).body.to_slice
+      bytes = @http.get(url, headers).body.to_slice
       unless bytes.size == 16
         raise ManifestError.new("HLS AES-128 key is #{bytes.size} bytes, expected 16")
       end
