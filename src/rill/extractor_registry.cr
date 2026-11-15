@@ -16,6 +16,7 @@ require "./extractors/rumble"
 require "./extractors/soundcloud"
 require "./extractors/spotify"
 require "./extractors/twitch_clip"
+require "./extractors/twitch_live"
 require "./extractors/twitch_vod"
 require "./extractors/youtube"
 require "./http_client"
@@ -37,6 +38,7 @@ module Rill
       registry.register(Extractors::Mixcloud)
       registry.register(Extractors::TwitchClip)
       registry.register(Extractors::TwitchVod)
+      registry.register(Extractors::TwitchLive)
       registry.register(Extractors::Hls)
       registry.register(Extractors::Dash)
       registry.register(Extractors::M3u)

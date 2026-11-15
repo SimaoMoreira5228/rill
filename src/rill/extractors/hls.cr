@@ -179,10 +179,6 @@ module Rill::Extractors
 
       Rill::Hls::Encryption.validate(playlist)
 
-      if playlist.map_url
-        raise UnsupportedManifestError.new("live HLS with initialization sections is not supported")
-      end
-
       if playlist.segments.any? { |segment| segment.byte_range }
         raise UnsupportedManifestError.new("live HLS with byte ranges is not supported")
       end

@@ -10,6 +10,7 @@ require "../json_value"
 require "../media"
 require "./hls"
 require "./twitch/gql"
+require "./twitch/usher"
 
 module Rill::Extractors
   class TwitchVod < Extractor
@@ -17,8 +18,6 @@ module Rill::Extractors
     VIDEOS_PATH        = %r{\A/videos/(\d+)/?\z}
     CHANNEL_VOD_PATH   = %r{\A/[^/]+/v(?:ideo)?/(\d+)/?\z}
     TWITCH_HOSTS       = {"twitch.tv", "www.twitch.tv", "go.twitch.tv", "m.twitch.tv"}
-
-    private record AccessToken, value : String, signature : String
 
     def initialize(
       @endpoint : String = TwitchGql::DEFAULT_ENDPOINT,
@@ -44,7 +43,7 @@ module Rill::Extractors
       end
 
       video = video_data(client, video_id, url)
-      token = access_token(client, video_id, url)
+      token = @gql.playback_access_token(client, token_query(video_id), "videoPlaybackAccessToken")
       playlist = Extractors::Hls.new.extract(usher_url(video_id, token), client)
 
       Media.new(
@@ -129,53 +128,17 @@ module Rill::Extractors
       end
     end
 
-    private def access_token(
-      client : HTTPClient,
-      video_id : String,
-      url : URI,
-    ) : AccessToken
-      response = @gql.post(client, token_body(video_id))
-      data = response.as_h?.try(&.["data"]?).try(&.as_h?)
-      token = data.try(&.["videoPlaybackAccessToken"]?).try(&.as_h?)
-
-      value = JsonValue.string(token.try(&.["value"]?))
-      signature = JsonValue.string(token.try(&.["signature"]?))
-      unless value && signature
-        raise MediaUnavailableError.new(url.to_s, "video access token is unavailable")
-      end
-
-      AccessToken.new(value, signature)
-    end
-
-    private def token_body(video_id : String) : String
-      query = String.build do |io|
+    private def token_query(video_id : String) : String
+      String.build do |io|
         io << "{ videoPlaybackAccessToken(id: \""
         io << video_id
         io << "\", params: {platform: \"web\", playerBackend: \"mediaplayer\", "
         io << "playerType: \"site\"}) { value signature } }"
       end
-
-      JSON.build do |json|
-        json.object do
-          json.field "query", query
-        end
-      end
     end
 
-    private def usher_url(video_id : String, token : AccessToken) : URI
-      params = HTTP::Params.new
-      params["allow_source"] = "true"
-      params["allow_audio_only"] = "true"
-      params["allow_spectre"] = "true"
-      params["p"] = Random.rand(1_000_000..10_000_000).to_s
-      params["platform"] = "web"
-      params["player"] = "twitchweb"
-      params["supported_codecs"] = "av1,h265,h264"
-      params["playlist_include_framerate"] = "true"
-      params["sig"] = token.signature
-      params["token"] = token.value
-
-      URI.parse("#{@usher_base}/vod/#{video_id}.m3u8?#{params}")
+    private def usher_url(video_id : String, token : TwitchGql::AccessToken) : URI
+      Twitch::Usher.url(@usher_base, "vod/#{video_id}.m3u8", token)
     end
 
     private def uploader_for(video : Hash(String, JSON::Any)) : String?
