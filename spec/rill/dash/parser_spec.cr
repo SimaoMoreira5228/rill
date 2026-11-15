@@ -108,11 +108,102 @@ describe Rill::Dash::Parser do
     segments.first.url.to_s.should eq("https://cdn.example.com/base/seg-1.m4s")
   end
 
-  it "rejects unsupported manifests" do
-    expect_raises(Rill::UnsupportedManifestError, /live DASH/) do
-      parse_dash(%(<MPD type="dynamic"><Period/></MPD>))
-    end
+  it "expands a live fixed-duration template from the live edge" do
+    manifest = parse_dash(<<-XML)
+      <MPD type="dynamic" availabilityStartTime="2026-01-01T00:00:00Z"
+           minimumUpdatePeriod="PT2S" timeShiftBufferDepth="PT4S">
+        <Period>
+          <AdaptationSet mimeType="video/mp4">
+            <SegmentTemplate timescale="1" duration="2" startNumber="5"
+                             initialization="init.mp4" media="seg-$Number$.m4s"/>
+            <Representation id="v" bandwidth="1000000"/>
+          </AdaptationSet>
+        </Period>
+      </MPD>
+    XML
 
+    manifest.dynamic?.should be_true
+    manifest.minimum_update_period.should eq(2.0)
+    manifest.time_shift_buffer_depth.should eq(4.0)
+    manifest.availability_start_time.should eq(Time.utc(2026, 1, 1))
+
+    representation = manifest.representations.first
+    representation.supported?(dynamic: true).should be_true
+
+    init_url, segments = representation.expand_live(
+      Time.utc(2026, 1, 1, 0, 0, 10),
+      manifest.availability_start_time,
+      manifest.time_shift_buffer_depth,
+    )
+
+    init_url.not_nil!.to_s.should eq("https://example.com/path/init.mp4")
+    segments.map(&.key).should eq([8_i64, 9_i64])
+    segments.map(&.url.to_s).should eq([
+      "https://example.com/path/seg-8.m4s",
+      "https://example.com/path/seg-9.m4s",
+    ])
+  end
+
+  it "expands a live segment timeline with time keys" do
+    manifest = parse_dash(<<-XML)
+      <MPD type="dynamic" availabilityStartTime="2026-01-01T00:00:00Z">
+        <Period>
+          <AdaptationSet mimeType="audio/mp4">
+            <SegmentTemplate timescale="1000" initialization="init.mp4"
+                             media="a-$Time$.m4s">
+              <SegmentTimeline>
+                <S t="0" d="2000" r="2"/>
+              </SegmentTimeline>
+            </SegmentTemplate>
+            <Representation id="a" bandwidth="128000"/>
+          </AdaptationSet>
+        </Period>
+      </MPD>
+    XML
+
+    representation = manifest.representations.first
+    _, segments = representation.expand_live(
+      Time.utc(2026, 1, 1, 0, 0, 10),
+      manifest.availability_start_time,
+      nil,
+    )
+
+    segments.map(&.key).should eq([0_i64, 2000_i64, 4000_i64])
+    segments.map(&.url.to_s).should eq([
+      "https://example.com/path/a-0.m4s",
+      "https://example.com/path/a-2000.m4s",
+      "https://example.com/path/a-4000.m4s",
+    ])
+  end
+
+  it "expands an open live timeline up to the previous segment" do
+    manifest = parse_dash(<<-XML)
+      <MPD type="dynamic" availabilityStartTime="2026-01-01T00:00:00Z">
+        <Period>
+          <AdaptationSet mimeType="audio/mp4">
+            <SegmentTemplate timescale="1000" initialization="init.mp4"
+                             media="a-$Time$.m4s">
+              <SegmentTimeline>
+                <S t="0" d="2000" r="-1"/>
+              </SegmentTimeline>
+            </SegmentTemplate>
+            <Representation id="a" bandwidth="128000"/>
+          </AdaptationSet>
+        </Period>
+      </MPD>
+    XML
+
+    representation = manifest.representations.first
+    _, segments = representation.expand_live(
+      Time.utc(2026, 1, 1, 0, 0, 10),
+      manifest.availability_start_time,
+      nil,
+    )
+
+    segments.map(&.key).should eq([0_i64, 2000_i64, 4000_i64, 6000_i64, 8000_i64])
+  end
+
+  it "rejects unsupported manifests" do
     expect_raises(Rill::UnsupportedManifestError, /multi-period/) do
       parse_dash(%(<MPD><Period/><Period/></MPD>))
     end

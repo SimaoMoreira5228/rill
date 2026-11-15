@@ -17,7 +17,7 @@ module Rill::Extractors
     def matches?(url : URI) : Bool
       return false unless url.scheme == "http" || url.scheme == "https"
 
-      File.extname(url.path).downcase == ".m3u8"
+      url.path.downcase.ends_with?(".m3u8")
     end
 
     def extract(url : URI, client : HTTPClient) : Media

@@ -15,7 +15,7 @@ module Rill::Extractors
     def matches?(url : URI) : Bool
       return false unless url.scheme == "http" || url.scheme == "https"
 
-      File.extname(url.path).downcase == ".mpd"
+      url.path.downcase.ends_with?(".mpd")
     end
 
     def extract(url : URI, client : HTTPClient) : Media
@@ -26,7 +26,7 @@ module Rill::Extractors
       unsupported = false
 
       manifest.representations.each do |representation|
-        unless representation.supported?
+        unless representation.supported?(manifest.dynamic?)
           unsupported = true
           next
         end
@@ -50,6 +50,7 @@ module Rill::Extractors
           duration_seconds: representation.duration_seconds,
           language: representation.language,
           note: representation.codecs || "DASH",
+          live: manifest.dynamic?,
         )
       end
 
@@ -64,6 +65,7 @@ module Rill::Extractors
         duration_seconds: manifest.duration_seconds,
         extractor: name,
         formats: formats,
+        is_live: manifest.dynamic?,
       )
     end
 

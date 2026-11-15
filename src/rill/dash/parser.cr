@@ -21,10 +21,7 @@ module Rill::Dash::Parser
       raise ManifestError.new("DASH manifest has no MPD root")
     end
 
-    if root["type"]? == "dynamic"
-      raise UnsupportedManifestError.new("live DASH manifests are not supported")
-    end
-
+    dynamic = root["type"]? == "dynamic"
     duration = Dash.parse_duration(root["mediaPresentationDuration"]?)
     manifest_base = resolve_base(root, base_url)
     periods = element_children(root, "Period")
@@ -90,7 +87,22 @@ module Rill::Dash::Parser
       end
     end
 
-    Manifest.new(representations, period_duration)
+    Manifest.new(
+      representations,
+      period_duration,
+      dynamic: dynamic,
+      availability_start_time: parse_time(root["availabilityStartTime"]?),
+      minimum_update_period: Dash.parse_duration(root["minimumUpdatePeriod"]?),
+      time_shift_buffer_depth: Dash.parse_duration(root["timeShiftBufferDepth"]?),
+    )
+  end
+
+  private def parse_time(value : String?) : Time?
+    return nil unless value
+
+    Time.parse_iso8601(value)
+  rescue Time::Format::Error
+    nil
   end
 
   private def unique_reference(

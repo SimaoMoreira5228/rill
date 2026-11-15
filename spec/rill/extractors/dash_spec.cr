@@ -10,6 +10,7 @@ describe Rill::Extractors::Dash do
 
     extractor.matches?(URI.parse("https://example.com/manifest.mpd")).should be_true
     extractor.matches?(URI.parse("https://example.com/MANIFEST.MPD?token=1")).should be_true
+    extractor.matches?(URI.parse("https://example.com/.mpd")).should be_true
     extractor.matches?(URI.parse("https://example.com/manifest.m3u8")).should be_false
     extractor.matches?(URI.parse("ftp://example.com/manifest.mpd")).should be_false
   end
@@ -56,6 +57,38 @@ describe Rill::Extractors::Dash do
       audio.kind.should eq(Rill::FormatKind::Audio)
       audio.language.should eq("en")
       audio.audio_codec.should eq("mp4a.40.2")
+    ensure
+      server.close
+    end
+  end
+
+  it "extracts a live manifest" do
+    manifest = <<-XML
+      <MPD type="dynamic" availabilityStartTime="2026-01-01T00:00:00Z"
+           minimumUpdatePeriod="PT2S" timeShiftBufferDepth="PT1M">
+        <Period>
+          <AdaptationSet mimeType="video/mp4" codecs="avc1.4d401f">
+            <SegmentTemplate duration="2" media="video-$Number$.m4s"
+                             initialization="video-init.mp4"/>
+            <Representation id="v720" bandwidth="1500000" width="1280" height="720"/>
+          </AdaptationSet>
+        </Period>
+      </MPD>
+    XML
+
+    server = TestHTTPServer.new
+    server.on("/manifest.mpd") { |_, response| response.print(manifest) }
+    server.start
+
+    begin
+      extractor = Rill::Extractors::Dash.new
+      media = extractor.extract(URI.parse("#{server.url}/manifest.mpd"), Rill::HTTPClient.new)
+      media.validate!
+
+      media.is_live?.should be_true
+      media.duration_seconds.should be_nil
+      media.formats.size.should eq(1)
+      media.formats.first.live?.should be_true
     ensure
       server.close
     end

@@ -10,8 +10,15 @@ module Rill::Dash
   struct Segment
     getter url : URI
     getter duration_seconds : Float64?
+    getter key : Int64?
+    getter key_step : Int64
 
-    def initialize(@url : URI, @duration_seconds : Float64? = nil)
+    def initialize(
+      @url : URI,
+      @duration_seconds : Float64? = nil,
+      @key : Int64? = nil,
+      @key_step : Int64 = 1_i64,
+    )
     end
   end
 
@@ -43,13 +50,17 @@ module Rill::Dash
     )
     end
 
-    def supported?(period_duration : Float64?) : Bool
+    def supported?(period_duration : Float64?, dynamic : Bool = false) : Bool
       return true unless @timeline.empty?
 
       duration = @duration
       return false unless duration && duration > 0
 
-      !period_duration.nil?
+      dynamic || !period_duration.nil?
+    end
+
+    def time_based? : Bool
+      media.includes?("$Time$")
     end
 
     def expand(
@@ -74,6 +85,129 @@ module Rill::Dash
       {init_url, segments}
     end
 
+    def expand_live(
+      base_url : URI,
+      reference : String,
+      bandwidth : Int64?,
+      now : Time,
+      availability_start_time : Time?,
+      window : Float64?,
+    ) : Tuple(URI?, Array(Segment))
+      init_url = if template = @initialization
+                   Dash.resolve_url(
+                     base_url,
+                     Dash.expand_template(template, reference, bandwidth, @start_number, @presentation_time_offset),
+                   )
+                 end
+
+      segments = if @timeline.empty?
+                   expand_live_fixed(base_url, reference, bandwidth, now, availability_start_time, window)
+                 else
+                   expand_live_timeline(
+                     base_url,
+                     reference,
+                     bandwidth,
+                     now,
+                     availability_start_time,
+                   )
+                 end
+
+      {init_url, segments}
+    end
+
+    private def expand_live_fixed(
+      base_url : URI,
+      reference : String,
+      bandwidth : Int64?,
+      now : Time,
+      availability_start_time : Time?,
+      window : Float64?,
+    ) : Array(Segment)
+      duration = @duration
+      unless duration && duration > 0
+        raise UnsupportedManifestError.new("live DASH segment template needs a duration")
+      end
+
+      start = availability_start_time
+      unless start
+        raise UnsupportedManifestError.new("live DASH segment template needs availabilityStartTime")
+      end
+
+      elapsed = (now - start).total_seconds
+      return [] of Segment if elapsed < 0
+
+      available = (elapsed * @timescale).floor.to_i64
+      last_index = available // duration - 1
+      return [] of Segment if last_index < 0
+
+      first_index = if window && window > 0
+                      window_segments = (window * @timescale / duration).ceil.to_i64
+                      start = last_index - Math.max(window_segments - 1, 0)
+                      start < 0 ? 0_i64 : start
+                    else
+                      0_i64
+                    end
+
+      segments = [] of Segment
+      (first_index..last_index).each do |index|
+        number = @start_number + index
+        time = @presentation_time_offset + index * duration
+        value = Dash.expand_template(@media, reference, bandwidth, number, time)
+        segments << Segment.new(
+          Dash.resolve_url(base_url, value),
+          duration.to_f / @timescale,
+          time_based? ? time : number,
+          time_based? ? duration : 1_i64,
+        )
+      end
+
+      segments
+    end
+
+    private def expand_live_timeline(
+      base_url : URI,
+      reference : String,
+      bandwidth : Int64?,
+      now : Time,
+      availability_start_time : Time?,
+    ) : Array(Segment)
+      segments = [] of Segment
+      number = @start_number
+      current_time = @presentation_time_offset
+      start = availability_start_time
+      unless start
+        raise UnsupportedManifestError.new("live DASH segment timeline needs availabilityStartTime")
+      end
+
+      now_ticks = ((now - start).total_seconds * @timescale).to_i64
+
+      @timeline.each do |entry|
+        start_time = entry.time || current_time
+        repeats = entry.repeat
+
+        if repeats < 0
+          repeats = (now_ticks - start_time) // entry.duration - 1
+          repeats = 0_i64 if repeats < 0
+        end
+
+        (repeats + 1).times do |index|
+          time = start_time + index * entry.duration
+          value = Dash.expand_template(@media, reference, bandwidth, number, time)
+          segments << Segment.new(
+            Dash.resolve_url(base_url, value),
+            entry.duration.to_f / @timescale,
+            time_based? ? time : number,
+            time_based? ? entry.duration : 1_i64,
+          )
+          number += 1
+        end
+
+        current_time = start_time + (repeats + 1) * entry.duration
+      end
+
+      segments
+    end
+
     private def expand_fixed(
       base_url : URI,
       reference : String,
@@ -96,6 +230,8 @@ module Rill::Dash
         segments << Segment.new(
           Dash.resolve_url(base_url, value),
           duration.to_f / @timescale,
+          time_based? ? time : number,
+          time_based? ? duration : 1_i64,
         )
       end
 
@@ -132,6 +268,8 @@ module Rill::Dash
           segments << Segment.new(
             Dash.resolve_url(base_url, value),
             entry.duration.to_f / @timescale,
+            time_based? ? time : number,
+            time_based? ? entry.duration : 1_i64,
           )
           number += 1
         end
@@ -186,11 +324,11 @@ module Rill::Dash
     )
     end
 
-    def supported? : Bool
+    def supported?(dynamic : Bool = false) : Bool
       return false if @segment_base
       return true if @list
 
-      @template.try(&.supported?(@duration_seconds)) || false
+      @template.try(&.supported?(@duration_seconds, dynamic)) || false
     end
 
     def expand : Tuple(URI?, Array(Segment))
@@ -202,13 +340,45 @@ module Rill::Dash
         raise UnsupportedManifestError.new("DASH representation has no segment information")
       end
     end
+
+    def expand_live(
+      now : Time,
+      availability_start_time : Time?,
+      window : Float64?,
+    ) : Tuple(URI?, Array(Segment))
+      if list = @list
+        {list.initialization, list.segments}
+      elsif template = @template
+        template.expand_live(
+          @base_url,
+          @reference,
+          @bandwidth,
+          now,
+          availability_start_time,
+          window,
+        )
+      else
+        raise UnsupportedManifestError.new("DASH representation has no segment information")
+      end
+    end
   end
 
   struct Manifest
     getter representations : Array(Representation)
     getter duration_seconds : Float64?
+    getter? dynamic : Bool
+    getter availability_start_time : Time?
+    getter minimum_update_period : Float64?
+    getter time_shift_buffer_depth : Float64?
 
-    def initialize(@representations : Array(Representation), @duration_seconds : Float64? = nil)
+    def initialize(
+      @representations : Array(Representation),
+      @duration_seconds : Float64? = nil,
+      @dynamic : Bool = false,
+      @availability_start_time : Time? = nil,
+      @minimum_update_period : Float64? = nil,
+      @time_shift_buffer_depth : Float64? = nil,
+    )
     end
   end
 
