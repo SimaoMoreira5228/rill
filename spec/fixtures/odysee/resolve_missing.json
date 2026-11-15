@@ -1,0 +1,12 @@
+{
+  "jsonrpc": "",
+  "result": {
+    "lbry://@nope:1/nothing:1": {
+      "error": {
+        "name": "NOT_FOUND",
+        "text": "claim not found"
+      }
+    }
+  },
+  "id": 0
+}

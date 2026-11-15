@@ -21,14 +21,18 @@ module Rill::Extractors
     end
 
     def extract(url : URI, client : HTTPClient) : Media
-      response = client.get(url)
+      extract(url, client, nil)
+    end
+
+    def extract(url : URI, client : HTTPClient, headers : HTTP::Headers?) : Media
+      response = client.get(url, headers)
       playlist = Rill::Hls::Parser.parse(response.body, response.url)
 
       case playlist
       when Rill::Hls::MultivariantPlaylist
-        extract_master(playlist, url, client)
+        extract_master(playlist, url, client, headers)
       when Rill::Hls::MediaPlaylist
-        extract_media(playlist, url, response.url)
+        extract_media(playlist, url, response.url, headers)
       else
         raise ManifestError.new("unsupported HLS playlist")
       end
@@ -51,9 +55,10 @@ module Rill::Extractors
       playlist : Rill::Hls::MultivariantPlaylist,
       url : URI,
       client : HTTPClient,
+      headers : HTTP::Headers?,
     ) : Media
       separate = playlist.variants.any? { |variant| separate_audio?(playlist, variant) }
-      probe = probe_variant(client, playlist.variants)
+      probe = probe_variant(client, playlist.variants, headers)
       container = probe.container
 
       if separate && container.nil?
@@ -66,7 +71,7 @@ module Rill::Extractors
       end
 
       formats = playlist.variants.map_with_index do |variant, index|
-        format_for_variant(variant, index, variant_kind(playlist, variant), container, probe.live)
+        format_for_variant(variant, index, variant_kind(playlist, variant), container, probe.live, headers)
       end
 
       warnings = [] of String
@@ -78,7 +83,7 @@ module Rill::Extractors
         end
 
         audio.each_with_index do |rendition, index|
-          formats << format_for_audio(rendition, index, container, probe.live)
+          formats << format_for_audio(rendition, index, container, probe.live, headers)
         end
       end
 
@@ -156,11 +161,12 @@ module Rill::Extractors
     private def probe_variant(
       client : HTTPClient,
       variants : Array(Rill::Hls::Variant),
+      headers : HTTP::Headers?,
     ) : VariantProbe
       live = false
 
       variants.each do |variant|
-        response = client.get(variant.url)
+        response = client.get(variant.url, headers)
         playlist = Rill::Hls::Parser.parse(response.body, response.url)
         next unless playlist.is_a?(Rill::Hls::MediaPlaylist)
 
@@ -188,6 +194,7 @@ module Rill::Extractors
       playlist : Rill::Hls::MediaPlaylist,
       url : URI,
       playlist_url : URI,
+      headers : HTTP::Headers?,
     ) : Media
       live = !playlist.ended
       duration = live ? nil : playlist.duration_seconds
@@ -199,6 +206,7 @@ module Rill::Extractors
         container: media_container(playlist),
         duration_seconds: duration,
         note: "HLS",
+        headers: headers || HTTP::Headers.new,
         live: live,
       )
 
@@ -218,6 +226,7 @@ module Rill::Extractors
       kind : FormatKind,
       container : String?,
       live : Bool,
+      headers : HTTP::Headers?,
     ) : Format
       Format.new(
         format_id: "hls-#{index + 1}",
@@ -229,6 +238,7 @@ module Rill::Extractors
         height: variant.height,
         bitrate: variant.bandwidth,
         note: variant.codecs,
+        headers: headers || HTTP::Headers.new,
         live: live,
       )
     end
@@ -238,6 +248,7 @@ module Rill::Extractors
       index : Int32,
       container : String?,
       live : Bool,
+      headers : HTTP::Headers?,
     ) : Format
       Format.new(
         format_id: "audio-#{index + 1}",
@@ -247,6 +258,7 @@ module Rill::Extractors
         container: container,
         language: rendition.language,
         note: rendition.name,
+        headers: headers || HTTP::Headers.new,
         live: live,
       )
     end

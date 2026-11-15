@@ -1,0 +1,43 @@
+{
+  "jsonrpc": "",
+  "result": {
+    "lbry://@Repost:1/copied:2": {
+      "claim_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "value_type": "repost",
+      "value": {
+        "claim_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+      },
+      "reposted_claim": {
+        "claim_id": "17f983b61f53091fb8ea58a9c56804e4ff8cff4d",
+        "canonical_url": "lbry://@Mantega#1/First-day-LBRY#1",
+        "value_type": "stream",
+        "timestamp": 1595694354,
+        "signing_channel": {
+          "name": "@Mantega",
+          "value": {
+            "title": "LBRY/Odysee rats united!!!"
+          }
+        },
+        "value": {
+          "stream_type": "video",
+          "title": "First day in LBRY? Start HERE!",
+          "description": "A short introduction to LBRY.",
+          "thumbnail": {
+            "url": "https://spee.ch/7/67f2d809c263288c.png"
+          },
+          "source": {
+            "media_type": "video/mp4",
+            "name": "First day LBRY.mp4",
+            "size": "94027711"
+          },
+          "video": {
+            "width": 1280,
+            "height": 720,
+            "duration": 346
+          }
+        }
+      }
+    }
+  },
+  "id": 0
+}
