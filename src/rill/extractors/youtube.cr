@@ -171,8 +171,8 @@ module Rill::Extractors
     end
 
     def extract(url : URI, client : HTTPClient) : Media | Playlist
-      if channel_path = channel_path_for(url)
-        return extract_channel(url, channel_path, client)
+      if channel = channel_path_for(url)
+        return extract_channel(url, channel.path, channel.tab, client)
       end
 
       if playlist_id = playlist_id_for(url)

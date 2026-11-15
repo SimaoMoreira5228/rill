@@ -1,0 +1,75 @@
+{
+  "contents": {
+    "twoColumnBrowseResultsRenderer": {
+      "tabs": [
+        {
+          "tabRenderer": {
+            "title": "Shorts",
+            "selected": true,
+            "content": {
+              "richGridRenderer": {
+                "contents": [
+                  {
+                    "richItemRenderer": {
+                      "content": {
+                        "shortsLockupViewModel": {
+                          "entityId": "shorts-shelf-item-aaaaaaaaaaa",
+                          "onTap": {
+                            "innertubeCommand": {
+                              "reelWatchEndpoint": {
+                                "videoId": "aaaaaaaaaaa"
+                              }
+                            }
+                          },
+                          "overlayMetadata": {
+                            "primaryText": {
+                              "content": "First short"
+                            },
+                            "secondaryText": {
+                              "content": "1K views"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  {
+                    "richItemRenderer": {
+                      "content": {
+                        "shortsLockupViewModel": {
+                          "entityId": "shorts-shelf-item-bbbbbbbbbbb",
+                          "onTap": {
+                            "innertubeCommand": {
+                              "reelWatchEndpoint": {
+                                "videoId": "bbbbbbbbbbb"
+                              }
+                            }
+                          },
+                          "overlayMetadata": {
+                            "primaryText": {
+                              "content": "Second short"
+                            },
+                            "secondaryText": {
+                              "content": "1K views"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  },
+  "metadata": {
+    "channelMetadataRenderer": {
+      "title": "Test channel",
+      "externalId": "UCtestchannel000000000",
+      "description": "A channel used by the specs"
+    }
+  }
+}

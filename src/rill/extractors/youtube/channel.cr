@@ -10,7 +10,9 @@ module Rill::Extractors
       "community", "channels", "about", "search",
     }
 
-    private def channel_path_for(url : URI) : String?
+    private record ChannelPath, path : String, tab : String
+
+    private def channel_path_for(url : URI) : ChannelPath?
       host = url.host.try(&.downcase)
       return nil unless host && HOSTS.includes?(host)
 
@@ -23,22 +25,27 @@ module Rill::Extractors
       segments = path.split('/').reject(&.empty?)
       return nil if segments.empty?
 
+      tab = "videos"
       last = segments.last
       if CHANNEL_TABS.includes?(last)
-        return nil unless last == "videos"
+        return nil unless last == "videos" || last == "streams" || last == "shorts"
 
+        tab = last
         segments.pop
       end
 
-      "/" + segments.join('/')
+      return nil if segments.empty?
+
+      ChannelPath.new("/" + segments.join('/'), tab)
     end
 
     private def extract_channel(
       url : URI,
       channel_path : String,
+      tab : String,
       client : HTTPClient,
     ) : Playlist
-      endpoint = "#{@api_base}#{channel_path}/videos"
+      endpoint = "#{@api_base}#{channel_path}/#{tab}"
       body = client.get(endpoint, page_headers).body
       data = yt_initial_data(body, url)
       bootstrap = page_bootstrap(body)

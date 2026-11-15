@@ -157,11 +157,11 @@ module Rill::Extractors
     ) : Nil
       if hash = value.as_h?
         if lockup = hash["lockupViewModel"]?.try(&.as_h?)
-          if entry = playlist_entry(lockup)
-            if video_id = entry.id
-              entries << entry if seen.add?(video_id)
-            end
-          end
+          append_playlist_entry(entries, seen, playlist_entry(lockup))
+        end
+
+        if short = hash["shortsLockupViewModel"]?.try(&.as_h?)
+          append_playlist_entry(entries, seen, short_entry(short))
         end
 
         hash.each_value do |child|
@@ -174,6 +174,17 @@ module Rill::Extractors
       end
     end
 
+    private def append_playlist_entry(
+      entries : Array(PlaylistEntry),
+      seen : Set(String),
+      entry : PlaylistEntry?,
+    ) : Nil
+      return unless entry
+      return unless video_id = entry.id
+
+      entries << entry if seen.add?(video_id)
+    end
+
     private def playlist_entry(lockup : Hash(String, JSON::Any)) : PlaylistEntry?
       content_type = JsonValue.string(lockup["contentType"]?)
       return nil unless content_type == "LOCKUP_CONTENT_TYPE_VIDEO"
@@ -184,6 +195,22 @@ module Rill::Extractors
       metadata = lockup["metadata"]?.try(&.as_h?)
       lockup_metadata = metadata.try(&.["lockupMetadataViewModel"]?).try(&.as_h?)
       title = lockup_metadata.try(&.["title"]?).try(&.as_h?).try(&.["content"]?).try(&.as_s?)
+
+      PlaylistEntry.new(
+        url: URI.parse("#{@api_base}/watch?v=#{video_id}"),
+        title: title || video_id,
+        id: video_id,
+      )
+    end
+
+    private def short_entry(lockup : Hash(String, JSON::Any)) : PlaylistEntry?
+      command = lockup["onTap"]?.try(&.as_h?).try(&.["innertubeCommand"]?).try(&.as_h?)
+      endpoint = command.try(&.["reelWatchEndpoint"]?).try(&.as_h?)
+      video_id = JsonValue.string(endpoint.try(&.["videoId"]?))
+      return nil unless video_id && VIDEO_ID.matches?(video_id)
+
+      overlay = lockup["overlayMetadata"]?.try(&.as_h?)
+      title = overlay.try(&.["primaryText"]?).try(&.as_h?).try(&.["content"]?).try(&.as_s?)
 
       PlaylistEntry.new(
         url: URI.parse("#{@api_base}/watch?v=#{video_id}"),

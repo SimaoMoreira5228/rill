@@ -45,12 +45,64 @@ describe Rill::Extractors::YouTube do
     end
   end
 
-  it "accepts channel URL shapes and the videos tab only" do
+  it "requests the streams tab when asked" do
+    requested = nil
+    server = TestHTTPServer.new
+    server.on("/@testchannel/streams") do |request, response|
+      requested = request.path
+      response.print(%(<script>var ytInitialData = #{fixture("youtube", "channel.json")};</script>))
+    end
+    server.on("/youtubei/v1/browse") do |_, response|
+      response.print(%({"contents":{}}))
+    end
+    server.start
+
+    begin
+      extractor = Rill::Extractors::YouTube.new(server.url)
+      playlist = extractor.extract(
+        URI.parse("https://www.youtube.com/@testchannel/streams"),
+        Rill::HTTPClient.new,
+      ).as(Rill::Playlist)
+
+      playlist.entries.size.should eq(2)
+      requested.should eq("/@testchannel/streams")
+    ensure
+      server.close
+    end
+  end
+
+  it "parses the shorts tab" do
+    requested = nil
+    server = TestHTTPServer.new
+    server.on("/@testchannel/shorts") do |request, response|
+      requested = request.path
+      response.print(%(<script>var ytInitialData = #{fixture("youtube", "channel_shorts.json")};</script>))
+    end
+    server.start
+
+    begin
+      extractor = Rill::Extractors::YouTube.new(server.url)
+      playlist = extractor.extract(
+        URI.parse("https://www.youtube.com/@testchannel/shorts"),
+        Rill::HTTPClient.new,
+      ).as(Rill::Playlist)
+
+      playlist.entries.map(&.id).should eq(["aaaaaaaaaaa", "bbbbbbbbbbb"])
+      playlist.entries.map(&.title).should eq(["First short", "Second short"])
+      requested.should eq("/@testchannel/shorts")
+    ensure
+      server.close
+    end
+  end
+
+  it "accepts channel URL shapes and video tabs" do
     extractor = Rill::Extractors::YouTube.new
 
     %w[
       https://www.youtube.com/@NASA
       https://www.youtube.com/@NASA/videos
+      https://www.youtube.com/@NASA/streams
+      https://www.youtube.com/@NASA/shorts
       https://www.youtube.com/channel/UCabc
       https://www.youtube.com/channel/UCabc/videos
       https://www.youtube.com/user/NASA
@@ -60,8 +112,6 @@ describe Rill::Extractors::YouTube do
     end
 
     %w[
-      https://www.youtube.com/@NASA/shorts
-      https://www.youtube.com/@NASA/streams
       https://www.youtube.com/@NASA/playlists
       https://example.com/@NASA
     ].each do |url|
