@@ -176,6 +176,13 @@ module Rill::CLI
 
       options.user_agent = value
     end
+    parser.on("--po-token-provider URL", "Fetch YouTube PO tokens from a provider") do |value|
+      if value.empty?
+        raise OptionParser::InvalidOption.new(value)
+      end
+
+      options.po_token_provider = value
+    end
   end
 
   private def self.run_download(args : Array(String)) : Int32

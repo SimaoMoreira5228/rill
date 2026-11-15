@@ -17,6 +17,7 @@ module Rill::Extractors
       streaming_value : JSON::Any?,
       client : HTTPClient,
       bootstrap : Bootstrap,
+      pot : String? = nil,
     ) : Array(Format)
       streaming = streaming_value.try(&.as_h?)
       return [] of Format unless streaming
@@ -83,6 +84,10 @@ module Rill::Extractors
         end
       end
 
+      if pot
+        formats.map! { |format| format.with_url(with_pot(format.url, pot)) }
+      end
+
       formats
     end
 
@@ -145,8 +150,16 @@ module Rill::Extractors
     end
 
     private def replace_n(url : URI, decoded : String) : URI
+      with_query(url, "n", decoded)
+    end
+
+    private def with_pot(url : URI, token : String) : URI
+      with_query(url, "pot", token)
+    end
+
+    private def with_query(url : URI, name : String, value : String) : URI
       params = HTTP::Params.parse(url.query || "")
-      params["n"] = decoded
+      params[name] = value
       updated = url.dup
       updated.query = params.to_s
       updated

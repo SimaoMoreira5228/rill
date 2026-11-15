@@ -9,7 +9,7 @@ The project is pragmatic about site support. Site-specific extractors handle sit
 Rill follows the same broad model as yt-dlp: explicit site extractors, a registry, and a generic fallback for pages that expose common metadata or direct media URLs. It is not a drop-in replacement.
 
 - The site list is much smaller.
-- YouTube signature and PO-token handling is incomplete.
+- YouTube signature solving is built in; PO tokens come from an external provider.
 - There is no extractor plugin system.
 - It does not try to mirror yt-dlp's command-line option surface.
 

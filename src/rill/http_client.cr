@@ -46,6 +46,7 @@ module Rill
     end
 
     getter cookies : CookieJar
+    getter options : RequestOptions
 
     def get(url : String | URI, headers : HTTP::Headers? = nil) : Response
       follow_redirects(url, headers) do |current_url, request_headers|

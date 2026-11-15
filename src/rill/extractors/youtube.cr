@@ -131,15 +131,17 @@ module Rill::Extractors
       },
     )
 
-    CLIENTS = {VISIONOS, ANDROID_VR, ANDROID, TV_SAMSUNG}
-
-    SEARCH_CLIENT = PlayerClient.new(
+    WEB = PlayerClient.new(
       "web",
       "1",
       "2.20260707.01.00",
       "Mozilla/5.0",
       {"clientName" => "WEB"},
     )
+
+    CLIENTS = {VISIONOS, ANDROID_VR, ANDROID, TV_SAMSUNG, WEB}
+
+    SEARCH_CLIENT = WEB
 
     struct SearchResult
       getter video_id : String
@@ -189,7 +191,13 @@ module Rill::Extractors
 
       CLIENTS.each do |player_client|
         begin
-          payload = player_payload(client, player_client, video_id, bootstrap, url)
+          player_token = nil
+          gvs_token = nil
+          if player_client.name == "web"
+            player_token, gvs_token = web_po_tokens(client, video_id, bootstrap)
+          end
+
+          payload = player_payload(client, player_client, video_id, bootstrap, url, player_token)
 
           if reason = playability_error(payload)
             errors << "#{player_client.name}: #{reason}"
@@ -204,17 +212,18 @@ module Rill::Extractors
 
           if details["isLiveContent"]?.try(&.as_bool?)
             if hls_url = live_hls_url(payload)
+              hls_url = with_pot(hls_url, gvs_token) if gvs_token
               return build_live_media(details, payload, hls_url, video_id, url, client)
             end
 
-            formats = formats_from(payload["streamingData"]?, client, bootstrap)
+            formats = formats_from(payload["streamingData"]?, client, bootstrap, gvs_token)
             return build_media(details, payload, formats, video_id, url) unless formats.empty?
 
             errors << "#{player_client.name}: live stream has no HLS manifest"
             next
           end
 
-          formats = formats_from(payload["streamingData"]?, client, bootstrap)
+          formats = formats_from(payload["streamingData"]?, client, bootstrap, gvs_token)
           if formats.empty?
             errors << "#{player_client.name}: no direct formats; JavaScript challenge support is required"
             next
@@ -405,12 +414,26 @@ module Rill::Extractors
       Bootstrap.new(visitor.try(&.[1]), api_key.try(&.[1]), js_url.try(&.[1]))
     end
 
+    private def web_po_tokens(
+      client : HTTPClient,
+      video_id : String,
+      bootstrap : Bootstrap,
+    ) : Tuple(String?, String?)
+      endpoint = client.options.po_token_provider
+      return {nil, nil} unless endpoint
+
+      provider = PoTokenProvider.new(endpoint)
+      player = bootstrap.visitor_data.try { |visitor| provider.token(client, visitor) }
+      {player, provider.token(client, video_id)}
+    end
+
     private def player_payload(
       client : HTTPClient,
       player_client : PlayerClient,
       video_id : String,
       bootstrap : Bootstrap,
       url : URI,
+      po_token : String? = nil,
     ) : Hash(String, JSON::Any)
       body = JSON.build do |json|
         json.object do
@@ -432,6 +455,13 @@ module Rill::Extractors
           json.field "videoId", video_id
           json.field "contentCheckOk", true
           json.field "racyCheckOk", true
+          if po_token
+            json.field "serviceIntegrityDimensions" do
+              json.object do
+                json.field "poToken", po_token
+              end
+            end
+          end
         end
       end
 
@@ -544,3 +574,5 @@ require "./youtube/formats"
 require "./youtube/playlist"
 
 require "./youtube/channel"
+
+require "./youtube/po_token"

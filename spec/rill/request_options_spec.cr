@@ -12,6 +12,7 @@ describe Rill::RequestOptions do
     options.retry_delay.should eq(1.second)
     options.max_response_bytes.should eq(16_i64 * 1024 * 1024)
     options.cookies.should be_empty
+    options.po_token_provider.should be_nil
   end
 
   it "parses every supported option" do
@@ -28,7 +29,8 @@ describe Rill::RequestOptions do
         "retry_delay_seconds": 0,
         "max_redirects": 3,
         "retries": 4,
-        "max_response_bytes": 1024
+        "max_response_bytes": 1024,
+        "po_token_provider": "https://provider.example/pot"
       }
     JSON
 
@@ -42,6 +44,7 @@ describe Rill::RequestOptions do
     options.max_redirects.should eq(3)
     options.retries.should eq(4)
     options.max_response_bytes.should eq(1024)
+    options.po_token_provider.should eq("https://provider.example/pot")
   end
 
   it "rejects malformed JSON" do

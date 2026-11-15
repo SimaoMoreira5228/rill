@@ -23,6 +23,7 @@ module Rill
     property retries : Int32 = DEFAULT_RETRIES
     property retry_delay : Time::Span = DEFAULT_RETRY_DELAY
     property max_response_bytes : Int64 = DEFAULT_MAX_RESPONSE_BYTES
+    property po_token_provider : String? = nil
 
     def retry_wait(attempt : Int32) : Time::Span
       exponent = Math.min(attempt - 1, 5)
@@ -62,6 +63,8 @@ module Rill
           options.retries = int32_option(key, value)
         when "max_response_bytes"
           options.max_response_bytes = integer_option(key, value)
+        when "po_token_provider"
+          options.po_token_provider = string_option(key, value)
         else
           raise InvalidOptionsError.new("unknown option #{key}")
         end
